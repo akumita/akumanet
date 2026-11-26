@@ -193,6 +193,7 @@ function waText(num,txt){var n=waNum(num);return n?'https://wa.me/'+n+'?text='+e
 function genPass(){var s='';for(var i=0;i<6;i++)s+=Math.floor(Math.random()*10);return s}
 function isOnline(u){return S.online[u]}
 function isAdmin(){return S.me&&S.me.role==='admin'}
+function hasSubs(){return (S.resellers||[]).length>0||S.clients.some(function(c){return !c.own})}
 function setTxt(id,t){var e=document.getElementById(id);if(e)e.textContent=t}
 
 /* ============ modal ============ */
@@ -244,7 +245,7 @@ function doLogout(){var t=S.token;S.token=null;store('pa_token',null);rawCall('l
 
 /* ============ ESTRUCTURA PRINCIPAL ============ */
 var NAV_ADMIN=[['inicio','layout-dashboard','Inicio'],['clientes','users','Clientes'],['revendedores','building-store','Revendedores'],['reporte','chart-bar','Reporte'],['control','shield-check','Control'],['avisos','brand-whatsapp','Avisos'],['deudas','cash-banknote','Deudas'],['historial','receipt','Historial'],['accesos','key','Accesos'],['ajustes','settings','Ajustes']];
-var NAV_RES=[['inicio','layout-dashboard','Inicio'],['clientes','users','Clientes'],['avisos','brand-whatsapp','Avisos'],['deudas','cash-banknote','Deudas'],['historial','receipt','Historial'],['ajustes','settings','Ajustes']];
+var NAV_RES=[['inicio','layout-dashboard','Inicio'],['clientes','users','Clientes'],['revendedores','building-store','Revendedores'],['avisos','brand-whatsapp','Avisos'],['deudas','cash-banknote','Deudas'],['historial','receipt','Historial'],['ajustes','settings','Ajustes']];
 function navTitle(v){var n=(isAdmin()?NAV_ADMIN:NAV_RES).filter(function(x){return x[0]===v})[0];return n?n[2]:''}
 function shell(){
   var nav=(isAdmin()?NAV_ADMIN:NAV_RES).map(function(n){return '<button data-v="'+n[0]+'"><i class="ti ti-'+n[1]+'"></i><span>'+n[2]+'</span>'+(n[0]==='control'?'<span id="navAlert" class="tag t-bad" style="display:none"></span>':n[0]==='deudas'?'<span id="navDebt" class="tag t-warn" style="display:none"></span>':'')+'</button>'}).join('');
@@ -272,7 +273,8 @@ function render(){
   [].forEach.call(document.querySelectorAll('#nav button'),function(b){b.classList.toggle('act',b.dataset.v===S.view)});
   setTxt('ptitle',navTitle(S.view));
   var views={inicio:vInicio,clientes:vClientes,avisos:vAvisos,deudas:vDeudas,historial:vHistorial,ajustes:vAjustes};
-  if(isAdmin()){views.control=vControl;views.revendedores=vRevendedores;views.reporte=vReporte;views.accesos=vAccesos}
+  views.revendedores=vRevendedores;
+  if(isAdmin()){views.control=vControl;views.reporte=vReporte;views.accesos=vAccesos}
   (views[S.view]||vInicio)();
 }
 function boot(){
@@ -283,7 +285,7 @@ function boot(){
     S.cfg=cfg;S.me=cfg.me;
     if(S.me.needsProfile)return vProfile();
     shell();S.view='inicio';render();startWs();
-    if(cfg.hasKey){loadClients();loadDebts();if(isAdmin())loadResellers()}
+    if(cfg.hasKey){loadClients();loadDebts();loadResellers()}
   }).catch(function(e){if(S.token)vLogin(e.message||String(e))});
 }
 
@@ -330,8 +332,8 @@ function vInicio(){
 function refreshKpis(){
   var on=S.online,tot=Object.keys(on).length,mine=0,rev=0;
   S.clients.forEach(function(c){if(on[c.username]){if(c.own)mine++;else rev++}});
-  setTxt('kOnline',isAdmin()?tot:mine);
-  setTxt('kOnlineSub',isAdmin()?'míos '+mine+' · revendedores '+rev:'de '+S.clients.length+' clientes');
+  setTxt('kOnline',tot);
+  setTxt('kOnlineSub',(isAdmin()||hasSubs())?'míos '+mine+' · revendedores '+rev:'de '+S.clients.length+' clientes');
   setTxt('kMineOn',mine+' en línea');
   if(S.clients.length&&isAdmin()){
     var r=S.clients.filter(function(c){return !c.own});
@@ -429,7 +431,7 @@ function loadClients(){
 }
 function resellerNames(){var n={};S.clients.forEach(function(c){if(!c.own&&c.reseller)n[c.reseller]=(n[c.reseller]||0)+1});return Object.keys(n).sort().map(function(k){return [k,n[k]]})}
 function vClientes(){
-  var A=isAdmin();if(!A)S.scope='mios';
+  var A=isAdmin()||hasSubs();if(!A)S.scope='mios';
   $('#main').innerHTML=
     '<div class="bar"><input id="q" placeholder="Buscar usuario, WhatsApp, nota…" style="flex:1;min-width:160px" value="'+esc(S.search)+'">'+
     '<button class="btn p" onclick="clientDlg()">+ Nuevo</button><button class="btn" onclick="clientDlg(null,true)">+ Prueba</button><button class="btn" onclick="loadClients().then(function(){toast(\'Actualizado\')})">↻</button></div>'+
@@ -470,7 +472,7 @@ function filteredClients(){
 }
 function drawClients(){
   var t=$('#ctable');if(!t)return;
-  var list=filteredClients(),showR=isAdmin()&&S.scope!=='mios';
+  var list=filteredClients(),showR=(isAdmin()||hasSubs())&&S.scope!=='mios';
   var base=S.clients.filter(function(c){return S.scope==='todos'||(S.scope==='mios'?c.own:!c.own)});
   var onN=list.filter(function(c){return isOnline(c.username)}).length;
   $('#cnt').textContent=list.length+' de '+base.length+' clientes · '+onN+' en línea';
@@ -604,7 +606,7 @@ function clientDlg(id,test){
 function infoDlg(id){
   var c=byId(id),o=isOnline(c.username);
   openModal('<h3>'+esc(c.username)+'</h3><table>'+
-   [['Contraseña',c.password],['Tipo',c.type],['Estado',c.status],['Categoría',c.category],(isAdmin()?['Revendedor',c.own?'Yo':c.reseller]:null),['Vence',fdt(c.exp)+' ('+diasTxt(c.dias)+')'],['Conexiones',(o?o.connection_count:0)+' / '+c.limit],['Método',o?o.connection_method:'OFF'],['Conectado desde',o?fdt(o.connected_at):'-'],['WhatsApp',c.wa||'-'],['Etiqueta',c.tag||'-'],['Nota',c.nota||'-'],['UUID V2Ray',c.uuid||'-']]
+   [['Contraseña',c.password],['Tipo',c.type],['Estado',c.status],['Categoría',c.category],(isAdmin()||hasSubs()?['Revendedor',c.own?'Yo':c.reseller]:null),['Vence',fdt(c.exp)+' ('+diasTxt(c.dias)+')'],['Conexiones',(o?o.connection_count:0)+' / '+c.limit],['Método',o?o.connection_method:'OFF'],['Conectado desde',o?fdt(o.connected_at):'-'],['WhatsApp',c.wa||'-'],['Etiqueta',c.tag||'-'],['Nota',c.nota||'-'],['UUID V2Ray',c.uuid||'-']]
    .filter(Boolean).map(function(r){return '<tr><td class="mut">'+r[0]+'</td><td>'+esc(r[1])+'</td></tr>'}).join('')+
    '</table><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button></div>');
 }
