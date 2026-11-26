@@ -95,6 +95,21 @@ tbody tr:hover td,tr:hover td{background:var(--hover)}
 #kmenu button i{font-size:18px;color:var(--mut)}
 #kmenu .warn,#kmenu .warn i{color:var(--warn)}#kmenu .bad,#kmenu .bad i{color:var(--bad)}#kmenu .ok,#kmenu .ok i{color:var(--ok)}
 #kmenu hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
+#nbg{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.6);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:16px}
+#nbox{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.45);animation:npop .22s ease-out}
+@keyframes npop{from{transform:translateY(12px) scale(.97);opacity:0}to{transform:none;opacity:1}}
+.nhead{padding:22px 22px 14px;text-align:center}
+.nicon{width:60px;height:60px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:30px;margin-bottom:10px}
+.n-info .nicon{background:var(--accbg);color:var(--acc2)}.n-oferta .nicon{background:var(--okbg);color:var(--ok)}.n-urgente .nicon{background:var(--badbg);color:var(--bad)}
+.nhead h3{margin:0;font-size:19px;font-weight:700}
+.nbody{padding:0 22px 6px;color:var(--txt);white-space:pre-wrap;line-height:1.55;text-align:center;font-size:14.5px;max-height:45vh;overflow:auto}
+.nfoot{display:flex;flex-direction:column;gap:8px;padding:18px 22px 22px}
+.nfoot .btn{justify-content:center;padding:11px}
+.ncount{font-size:11px;color:var(--mut);text-align:center;margin-top:-6px}
+.bellwrap{position:relative}.bellwrap .tag{position:absolute;top:-4px;right:-4px;padding:0 5px;font-size:10px}
+.nlist .item{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer}
+.nlist .item:hover{border-color:var(--acc)}
+.nlist .item.unseen{border-color:var(--acc);background:var(--accbg)}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--txt);color:var(--bg);padding:10px 16px;border-radius:10px;display:none;z-index:99;max-width:90vw;font-weight:500}
 #toast.err{background:var(--bad);color:#fff}
 .loading{opacity:.5;pointer-events:none}
@@ -143,6 +158,7 @@ tbody tr:hover td,tr:hover td{background:var(--hover)}
 <div class="modal-bg" id="mbg"><div class="modal" id="modal"></div></div>
 <div class="modal-bg" id="cbg" style="z-index:60"><div class="modal" id="cmodal" style="max-width:400px"></div></div>
 <div id="kmenu" role="menu"></div>
+<div id="nbg" role="dialog" aria-modal="true"><div id="nbox"></div></div>
 <div id="toast"></div>
 
 <script>
@@ -244,7 +260,7 @@ function sessionExpired(){S.token=null;store('pa_token',null);vLogin('Tu sesión
 function doLogout(){var t=S.token;S.token=null;store('pa_token',null);rawCall('logout',[t]).catch(function(){});S.clients=[];S.online={};S.servers={};S.resellers=[];vLogin()}
 
 /* ============ ESTRUCTURA PRINCIPAL ============ */
-var NAV_ADMIN=[['inicio','layout-dashboard','Inicio'],['clientes','users','Clientes'],['revendedores','building-store','Revendedores'],['reporte','chart-bar','Reporte'],['control','shield-check','Control'],['avisos','brand-whatsapp','Avisos'],['deudas','cash-banknote','Deudas'],['historial','receipt','Historial'],['accesos','key','Accesos'],['ajustes','settings','Ajustes']];
+var NAV_ADMIN=[['inicio','layout-dashboard','Inicio'],['clientes','users','Clientes'],['revendedores','building-store','Revendedores'],['reporte','chart-bar','Reporte'],['control','shield-check','Control'],['avisos','brand-whatsapp','Avisos'],['deudas','cash-banknote','Deudas'],['historial','receipt','Historial'],['accesos','key','Accesos'],['notificaciones','bell','Notificaciones'],['ajustes','settings','Ajustes']];
 var NAV_RES=[['inicio','layout-dashboard','Inicio'],['clientes','users','Clientes'],['revendedores','building-store','Revendedores'],['avisos','brand-whatsapp','Avisos'],['deudas','cash-banknote','Deudas'],['historial','receipt','Historial'],['ajustes','settings','Ajustes']];
 function navTitle(v){var n=(isAdmin()?NAV_ADMIN:NAV_RES).filter(function(x){return x[0]===v})[0];return n?n[2]:''}
 function shell(){
@@ -254,6 +270,7 @@ function shell(){
    '<div style="margin-top:10px"><button class="btn sm" onclick="doLogout()"><i class="ti ti-logout"></i>Salir</button></div></div></aside>'+
    '<div class="content"><header class="top"><img class="hlogo" src="'+LOGO+'" alt=""><h1 id="ptitle"></h1>'+
    '<span class="live"><span id="wsdot" class="dot"></span><span id="wstxt" class="lt">…</span></span>'+
+   '<span class="bellwrap"><button class="iconbtn" onclick="bellClick()" aria-label="Notificaciones"><i class="ti ti-bell"></i></button><span id="bellN" class="tag t-bad" style="display:none"></span></span>'+
    '<button class="iconbtn" id="thbtn" onclick="toggleTheme()" aria-label="Cambiar tema"></button>'+
    '<button class="iconbtn mob" onclick="doLogout()" aria-label="Salir"><i class="ti ti-logout"></i></button></header><main id="main"></main></div></div>';
   $('#nav').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;go(b.dataset.v)});
@@ -274,7 +291,7 @@ function render(){
   setTxt('ptitle',navTitle(S.view));
   var views={inicio:vInicio,clientes:vClientes,avisos:vAvisos,deudas:vDeudas,historial:vHistorial,ajustes:vAjustes};
   views.revendedores=vRevendedores;
-  if(isAdmin()){views.control=vControl;views.reporte=vReporte;views.accesos=vAccesos}
+  if(isAdmin()){views.control=vControl;views.reporte=vReporte;views.accesos=vAccesos;views.notificaciones=vNotificaciones}
   (views[S.view]||vInicio)();
 }
 function boot(){
@@ -284,7 +301,7 @@ function boot(){
   call('getConfig').then(function(cfg){
     S.cfg=cfg;S.me=cfg.me;
     if(S.me.needsProfile)return vProfile();
-    shell();S.view='inicio';render();startWs();
+    shell();S.view='inicio';render();startWs();loadNotices(true);
     if(cfg.hasKey){loadClients();loadDebts();loadResellers()}
   }).catch(function(e){if(S.token)vLogin(e.message||String(e))});
 }
@@ -801,6 +818,109 @@ function debtDlg(user){
   $('#dgo').onclick=function(){var u=$('#du').value.trim(),mo=Number($('#dm').value);if(!u)return toast('Elegí el cliente',true);if(!(mo>0))return toast('Poné el monto',true);
     var cl=S.clients.filter(function(c){return c.username.toLowerCase()===u.toLowerCase()})[0];busy($('#modal'),true);
     call('addDebt',u,mo,$('#dd').value,cl?cl.wa:'').then(function(){closeModal();toast('Deuda anotada');if(S.view==='deudas')vDeudas();else loadDebts()}).catch(fail).then(function(){busy($('#modal'),false)})};
+}
+
+/* ============ NOTIFICACIONES (ventanas emergentes) ============ */
+var NTYPE={info:{icon:'info-circle',label:'Información'},oferta:{icon:'gift',label:'Oferta'},urgente:{icon:'alert-triangle',label:'Urgente'}};
+S.notices=null;var NQUEUE=[];
+function loadNotices(popups){
+  return call('getNotices').then(function(r){
+    S.notices=r;
+    if(r&&r.settings)r.adminWa=r.settings.adminWa;
+    if(!isAdmin()){
+      var unseen=(r.notices||[]).filter(function(n){return !n.seen});
+      setBell(unseen.length+(r.expiry?1:0));
+      if(popups){NQUEUE=[];if(r.expiry)NQUEUE.push({expiry:true,data:r.expiry});unseen.forEach(function(n){NQUEUE.push({data:n})});nextNotice()}
+    }else setBell(0);
+    return r;
+  }).catch(function(e){console.warn(e)});
+}
+function setBell(n){var b=document.getElementById('bellN');if(b){b.textContent=n;b.style.display=n?'inline-block':'none'}}
+function adminWaLink(txt){var w=S.notices&&S.notices.adminWa;return w&&waNum(w)?waText(w,txt):''}
+function showNoticeBox(item,count){
+  var d=item.data,exp=item.expiry,tipo=exp?(d.dias<=0?'urgente':'urgente'):d.tipo||'info';
+  var icon=exp?'calendar-exclamation':(NTYPE[tipo]||NTYPE.info).icon;
+  var wa=exp?adminWaLink('Hola! Quiero abonar mi panel AkumaNet ('+(S.me&&S.me.name||'')+').'):(d.boton?adminWaLink('Hola! Me interesa: '+d.titulo):'');
+  var btnTxt=exp?'Abonar por WhatsApp':(d.boton||'');
+  $('#nbox').className='n-'+tipo;
+  $('#nbox').innerHTML='<div class="nhead"><div class="nicon"><i class="ti ti-'+icon+'"></i></div><h3>'+esc(d.titulo)+'</h3></div>'+
+   '<div class="nbody">'+esc(d.mensaje)+'</div>'+(count>1?'<div class="ncount" style="margin-top:8px">'+count+' avisos</div>':'')+
+   '<div class="nfoot">'+(wa&&btnTxt?'<a class="btn wa" target="_blank" href="'+wa+'" onclick="closeNotice()"><i class="ti ti-brand-whatsapp"></i>'+esc(btnTxt)+'</a>':'')+
+   '<button class="btn '+(wa&&btnTxt?'':'p')+'" onclick="closeNotice()">Entendido</button></div>';
+  $('#nbg').style.display='flex';
+  $('#nbg')._item=item;
+}
+function nextNotice(){if(!NQUEUE.length){$('#nbg').style.display='none';return}var it=NQUEUE.shift();showNoticeBox(it,NQUEUE.length+1)}
+function closeNotice(){
+  var it=$('#nbg')._item;
+  if(it&&!it.expiry&&it.data&&it.data.id&&!it.data.seen&&!it.preview){it.data.seen=true;call('markNoticeSeen',it.data.id).catch(function(){});
+    var un=((S.notices&&S.notices.notices)||[]).filter(function(n){return !n.seen}).length;setBell(un+(S.notices&&S.notices.expiry?1:0))}
+  if(it&&it.preview){$('#nbg').style.display='none';return}
+  nextNotice();
+}
+function bellClick(){
+  if(isAdmin())return go('notificaciones');
+  var r=S.notices||{},list=r.notices||[];
+  openModal('<h3><i class="ti ti-bell"></i> Notificaciones</h3><div class="nlist">'+
+   (r.expiry?'<div class="item unseen" onclick="closeModal();showNoticeBox({expiry:true,data:S.notices.expiry,preview:true},1)"><b style="color:var(--bad)"><i class="ti ti-calendar-exclamation"></i> '+esc(r.expiry.titulo)+'</b><div class="mut small">Vence el '+esc(r.expiry.fecha)+'</div></div>':'')+
+   list.map(function(n,i){return '<div class="item'+(n.seen?'':' unseen')+'" onclick="closeModal();showNoticeBox({data:S.notices.notices['+i+']},1)"><b><i class="ti ti-'+(NTYPE[n.tipo]||NTYPE.info).icon+'"></i> '+esc(n.titulo)+'</b><div class="mut small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(n.mensaje)+'</div></div>'}).join('')+
+   (!r.expiry&&!list.length?'<p class="mut" style="text-align:center">No tenés notificaciones.</p>':'')+
+   '</div><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button></div>');
+}
+
+/* ---- super admin: administrar notificaciones ---- */
+function vNotificaciones(){
+  var m=$('#main');m.innerHTML='<div class="mut">Cargando…</div>';
+  Promise.all([loadNotices(false),S.resellers.length?S.resellers:loadResellers()]).then(function(){
+    var r=S.notices||{},st=r.settings||{},list=r.notices||[],hoy=isoDate(Date.now());
+    m.innerHTML='<p class="mut">Mensajes que les aparecen a tus revendedores en una ventana emergente apenas entran al panel (y quedan guardados en la campanita). Ideal para ofertas de créditos, avisos de mantenimiento o recordatorios.</p>'+
+     '<div class="bar"><button class="btn p" onclick="noticeDlg()"><i class="ti ti-plus"></i>Nueva notificación</button></div>'+
+     (list.length?'<div class="tablewrap" style="margin-bottom:22px"><table><tr><th>Notificación</th><th class="hide-m">Para</th><th>Vigencia</th><th>Acciones</th></tr>'+list.map(function(n,i){
+       var act=(!n.hasta||n.hasta>=hoy)&&(!n.desde||n.desde<=hoy);
+       return '<tr><td><b><i class="ti ti-'+(NTYPE[n.tipo]||NTYPE.info).icon+'"></i> '+esc(n.titulo)+'</b><div class="mut small" style="max-width:380px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(n.mensaje)+'</div></td>'+
+        '<td class="hide-m small">'+(n.para==='todos'?'Todos':(n.para||[]).length+' revendedor(es)')+'</td>'+
+        '<td>'+(act?'<span class="tag t-ok">activa</span>':'<span class="tag t-mut">'+(n.desde>hoy?'programada':'vencida')+'</span>')+'<div class="mut small">'+(n.hasta?'hasta '+dDate(n.hasta):'sin vencimiento')+'</div></td>'+
+        '<td class="acts"><button class="btn sm" onclick="previewNotice('+i+')"><i class="ti ti-eye"></i>Ver</button><button class="btn sm" onclick="noticeDlg('+i+')">Editar</button><button class="btn sm d" onclick="delNotice('+i+')">Borrar</button></td></tr>'}).join('')+'</table></div>'
+      :'<div class="card" style="text-align:center;padding:26px;margin-bottom:22px"><i class="ti ti-bell" style="font-size:32px;color:var(--mut)"></i><p class="mut" style="margin:8px 0 0">Todavía no mandaste notificaciones.</p></div>')+
+     '<div class="card"><h3 style="margin-top:0"><i class="ti ti-calendar-exclamation"></i> Aviso de vencimiento del panel</h3>'+
+     '<p class="mut small">Ventana emergente que le sale a cada revendedor apenas entra, cuando a su cuenta le faltan pocos días para vencer o ya venció. Variables: {nombre} {fecha} {cuando} {dias}.</p>'+
+     '<form id="vpf" class="f"><label>Mostrar cuando falten (días)<input name="vencePanelDias" type="number" min="0" max="10" value="'+esc(st.vencePanelDias)+'"></label>'+
+     '<label>Tu WhatsApp (botón "Abonar")<input name="adminWa" type="tel" placeholder="+54 9 11 ..." value="'+esc(st.adminWa)+'"></label>'+
+     '<label class="full">Título<input name="vencePanelTitulo" value="'+esc(st.vencePanelTitulo)+'"></label>'+
+     '<label class="full">Mensaje<textarea name="vencePanelMsg" style="min-height:110px">'+esc(st.vencePanelMsg)+'</textarea></label></form>'+
+     '<div class="mfoot"><button class="btn" onclick="previewExpiry()"><i class="ti ti-eye"></i>Vista previa</button><button class="btn p" id="vpsave">Guardar</button></div></div>';
+    $('#vpsave').onclick=function(){call('saveSettings',Object.fromEntries(new FormData($('#vpf')).entries())).then(function(cfg){S.cfg=cfg;toast('Aviso de vencimiento guardado');loadNotices(false)}).catch(fail)};
+  }).catch(function(e){m.innerHTML='<div class="card">Error: '+esc(e.message||e)+'</div>'});
+}
+function previewExpiry(){var f=Object.fromEntries(new FormData($('#vpf')).entries());S.notices.adminWa=f.adminWa;
+  var fill=function(t){return String(t||'').replace(/\{nombre\}/g,'Gaston').replace(/\{fecha\}/g,dDate(isoDate(Date.now()+864e5))).replace(/\{cuando\}/g,'MAÑANA').replace(/\{dias\}/g,'1')};
+  showNoticeBox({expiry:true,preview:true,data:{titulo:fill(f.vencePanelTitulo),mensaje:fill(f.vencePanelMsg),dias:1}},1)}
+function previewNotice(i){showNoticeBox({preview:true,data:S.notices.notices[i]},1)}
+function delNotice(i){var n=S.notices.notices[i];ask('¿Borrar la notificación "'+n.titulo+'"? Deja de aparecerles a tus revendedores.','Borrar',true).then(function(ok){if(!ok)return;
+  call('deleteNotice',n.id).then(function(){toast('Notificación borrada');vNotificaciones()}).catch(fail)})}
+function noticeDlg(i){
+  var n=i!=null?S.notices.notices[i]:null,para=n?n.para:'todos';
+  var res=(S.resellers||[]).map(function(r){var on=para!=='todos'&&(para||[]).indexOf(r.id)>=0;return '<label style="flex-direction:row;gap:6px;display:inline-flex;margin:0 12px 6px 0;color:var(--txt)"><input type="checkbox" name="rid" value="'+r.id+'" '+(on?'checked':'')+'> '+esc(r.name)+'</label>'}).join('');
+  openModal('<h3>'+(n?'Editar notificación':'Nueva notificación')+'</h3><form id="nf" class="f">'+
+   '<label class="full">Tipo<span class="chips" id="ntipo" style="display:flex;gap:6px;margin-top:2px">'+['info','oferta','urgente'].map(function(t){return '<button type="button" data-t="'+t+'" class="'+((n?n.tipo:'info')===t?'act':'')+'"><i class="ti ti-'+NTYPE[t].icon+'"></i> '+NTYPE[t].label+'</button>'}).join('')+'</span><input type="hidden" name="tipo" value="'+(n?n.tipo:'info')+'"></label>'+
+   '<label class="full">Título<input name="titulo" maxlength="120" required value="'+esc(n?n.titulo:'')+'" placeholder="🔥 Oferta de créditos de diciembre"></label>'+
+   '<label class="full">Mensaje<textarea name="mensaje" maxlength="2000" required style="min-height:120px" placeholder="Este mes, 100 créditos a $X. Pedilos antes del 15/12.">'+esc(n?n.mensaje:'')+'</textarea></label>'+
+   '<label>Desde<input name="desde" type="date" value="'+esc(n?n.desde:isoDate(Date.now()))+'"></label>'+
+   '<label>Hasta (opcional)<input name="hasta" type="date" value="'+esc(n?n.hasta:'')+'"></label>'+
+   '<label class="full">Botón de WhatsApp (opcional)<input name="boton" maxlength="40" value="'+esc(n?n.boton:'')+'" placeholder="Quiero la oferta"></label>'+
+   '<label class="full">Para<span class="chips" style="display:flex;gap:6px;margin-top:2px"><button type="button" id="npt" class="'+(para==='todos'?'act':'')+'">Todos</button><button type="button" id="npa" class="'+(para!=='todos'?'act':'')+'">Elegir revendedores</button></span>'+
+   '<div id="nres" style="display:'+(para==='todos'?'none':'block')+';margin-top:8px">'+(res||'<span class="mut">No hay revendedores.</span>')+'</div></label>'+
+   (n?'<label class="full" style="flex-direction:row;align-items:center;gap:8px;color:var(--txt)"><input type="checkbox" name="reenviar" value="1"> Volver a mostrarla a quienes ya la vieron</label>':'')+
+   '</form><p class="mut small">El botón de WhatsApp abre un chat con tu número (lo configurás abajo, en "Aviso de vencimiento").</p>'+
+   '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn" id="nprev"><i class="ti ti-eye"></i>Vista previa</button><button class="btn p" id="nsave">'+(n?'Guardar':'Publicar')+'</button></div>');
+  var todos=para==='todos';
+  $('#ntipo').onclick=function(e){var b=e.target.closest('button');if(!b)return;[].forEach.call(this.children,function(x){x.classList.toggle('act',x===b)});$('#nf').tipo.value=b.dataset.t};
+  $('#npt').onclick=function(){todos=true;this.classList.add('act');$('#npa').classList.remove('act');$('#nres').style.display='none'};
+  $('#npa').onclick=function(){todos=false;this.classList.add('act');$('#npt').classList.remove('act');$('#nres').style.display='block'};
+  function data(){var fd=new FormData($('#nf')),o=Object.fromEntries(fd.entries());o.para=todos?'todos':fd.getAll('rid');delete o.rid;o.reenviar=!!o.reenviar;if(n){o.id=n.id;o.creada=n.creada}return o}
+  $('#nprev').onclick=function(){var o=data();if(!o.titulo||!o.mensaje)return toast('Completá el título y el mensaje',true);showNoticeBox({preview:true,data:o},1)};
+  $('#nsave').onclick=function(){var o=data();if(!o.titulo||!o.mensaje)return toast('Completá el título y el mensaje',true);busy($('#modal'),true);
+    call('saveNotice',o).then(function(){closeModal();toast(n?'Notificación actualizada':'Notificación publicada ✅');vNotificaciones()}).catch(fail).then(function(){busy($('#modal'),false)})};
 }
 
 function vAvisos(){
