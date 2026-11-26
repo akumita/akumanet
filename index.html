@@ -616,6 +616,18 @@ function resMenu(ev,id){
   ]));
 }
 
+/* ============ precio por conexión ============ */
+function isApp(){return /; wv\)/.test(navigator.userAgent)}
+function precioPara(conex,dias){var p=Number(S.cfg&&S.cfg.settings.precioMes)||0;return Math.round(p*(Number(conex)||1)*(Number(dias)||30)/30/100)*100}
+function precioHint(conex,dias){var p=Number(S.cfg&&S.cfg.settings.precioMes)||0;if(!p)return 'Cargá tu precio por conexión en Ajustes';conex=Number(conex)||1;dias=Number(dias)||30;
+  return conex+(conex===1?' conexión':' conexiones')+' × '+money(p)+(dias!==30?' × '+dias+'/30 días':'')}
+/** Mantiene el monto = precio × conexiones × días/30, salvo que el usuario lo cambie a mano. */
+function autoPrice(daysId,dateId,montoId,hintId,getConex){
+  var m=$('#'+montoId);if(!m)return;m._manual=false;m.addEventListener('input',function(){m._manual=true});
+  function upd(){if(m._manual)return;var d=Number($('#'+daysId).value)||30,cx=getConex();m.value=precioPara(cx,d);setTxt(hintId,precioHint(cx,d))}
+  var di=$('#'+daysId),dt=$('#'+dateId);if(di)di.addEventListener('input',upd);if(dt)dt.addEventListener('change',upd);
+  [].forEach.call(document.querySelectorAll('#modal .chips button'),function(b){b.addEventListener('click',function(){setTimeout(upd,0)})});
+}
 function byId(id){for(var i=0;i<S.clients.length;i++)if(S.clients[i].id===id)return S.clients[i]}
 function ensureCats(){return S.cats?Promise.resolve(S.cats):call('getCategories').then(function(c){S.cats=c;return c})}
 
@@ -629,13 +641,14 @@ function clientDlg(id,test){
       '<label>Categoría<select name="category_id">'+opts+'</select></label>'+
       '<label>Conexiones<input name="connection_limit" type="number" min="1" value="'+(c?c.limit:1)+'"></label>'+
       (c?'':(test?'<label>Duración (minutos)<input name="duration" type="number" min="1" value="60"></label>':'<label class="full">Duración en días o fecha de vencimiento'+durField('cdays','cdate','duration')+'</label>')+
-            (test?'':'<label><span id="cmlab">Cobrado ($)</span><input name="monto" type="number" min="0" value="'+esc(S.cfg.settings.precioMes)+'"></label>'+payToggle('cpay','cmlab')))+
+            (test?'':'<label><span id="cmlab">Cobrado ($)</span><input name="monto" id="cm" type="number" min="0" value="'+precioPara(1,30)+'"><span class="mut small" id="cmhint">'+precioHint(1,30)+'</span></label>'+payToggle('cpay','cmlab')))+
       '<label>WhatsApp<input name="wa" type="tel" placeholder="+54 9 11 ..." value="'+esc(c?c.wa:'')+'"></label>'+
       '<label>Dispositivo / etiqueta<input name="tag" placeholder="android, iphone…" value="'+esc(c?c.tag:'android')+'"></label>'+
       '<label class="full">Nota<input name="nota" value="'+esc(c?c.nota:'')+'"></label>'+
       '</form><div class="mfoot">'+(c?'<button class="btn d" onclick="delClient('+c.id+')">Eliminar</button><button class="btn" onclick="suspClient('+c.id+')">'+(c.status==='suspended'?'Reactivar':'Suspender')+'</button>':'')+
       '<span style="flex:1"></span><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="csave">Guardar</button></div>');
-    if(!c&&!test)linkDays('cdays','cdate',Date.now());
+    if(!c&&!test){linkDays('cdays','cdate',Date.now());autoPrice('cdays','cdate','cm','cmhint',function(){return Number($('#cf').connection_limit.value)||1});
+      $('#cf').connection_limit.addEventListener('input',function(){var e=$('#cm');if(e&&!e._manual){var d=Number($('#cdays').value)||30;e.value=precioPara(Number(this.value)||1,d);setTxt('cmhint',precioHint(Number(this.value)||1,d))}})}
     $('#csave').onclick=function(){
       var f=Object.fromEntries(new FormData($('#cf')).entries());
       if(!f.username||!f.password)return toast('Usuario y contraseña son obligatorios',true);
@@ -663,22 +676,28 @@ function renewDlg(id){
   if(!c){loadClients().then(function(){if(byId(id))renewDlg(id)});return}
   openModal('<h3>Renovar '+esc(c.username)+'</h3><p class="mut">Vence: '+fdate(c.exp)+' ('+diasTxt(c.dias)+')</p><div class="f">'+
    '<label class="full">Días a sumar o nueva fecha de vencimiento'+durField('rd','rdate')+'</label>'+
-   '<label><span id="rmlab">Cobrado ($)</span><input id="rm" type="number" min="0" value="'+esc(S.cfg.settings.precioMes)+'"></label>'+
-   '<label style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input type="checkbox" id="rw" '+(c.wa?'checked':'disabled')+'> Avisar por WhatsApp</label>'+
+   '<label><span id="rmlab">Cobrado ($)</span><input id="rm" type="number" min="0" value="'+precioPara(c.limit,30)+'"><span class="mut small" id="rmhint">'+precioHint(c.limit,30)+'</span></label>'+
+   '<label style="flex-direction:row;align-items:center;gap:8px;align-self:end"><input type="checkbox" id="rw" '+(c.wa?'checked':'disabled')+'> '+(c.wa?'Abrir WhatsApp con el aviso':'Sin WhatsApp cargado')+'</label>'+
    payToggle('rpay','rmlab')+(c.own&&debtFor(c.username)?'<p class="full small" style="margin:0;color:var(--warn)">Este cliente ya debe '+money(debtFor(c.username))+'.</p>':'')+'</div>'+
    '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="rgo"><i class="ti ti-refresh"></i>Renovar</button></div>');
   linkDays('rd','rdate',Math.max(Date.now(),new Date(c.exp).getTime()));
+  autoPrice('rd','rdate','rm','rmhint',function(){return c.limit});
   $('#rgo').onclick=function(){
-    var d=Number($('#rd').value),m=$('#rm').value,w=$('#rw').checked;
+    var d=Number($('#rd').value),m=$('#rm').value,w=$('#rw').checked&&!!waNum(c.wa);
     if(!(d>=1))return toast('Elegí cuántos días sumar o la fecha',true);
+    // En el navegador hay que abrir la pestaña de WhatsApp ahora (si no, se bloquea); en la app se abre después.
+    var win=(w&&!isApp())?window.open('','_blank'):null;
     busy($('#modal'),true);
     call('renewClient',c.id,c.username,d,m,c.wa,isDebe('rpay')).then(function(){if(isDebe('rpay'))loadDebts();
       var base=new Date(Math.max(Date.now(),new Date(c.exp).getTime()));
       var nc={username:c.username,wa:c.wa,exp:new Date(base.getTime()+d*864e5).toISOString(),dias:c.dias+d};
       toast('Renovado ✅');loadClients();if(S.view==='inicio')vInicio();if(S.view==='avisos')vAvisos();
-      if(w){openModal('<h3>Renovado ✅</h3><p>'+esc(c.username)+' vence ahora el <b>'+fdate(nc.exp)+'</b>.</p><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button><a class="btn wa" target="_blank" onclick="closeModal()" href="'+waLink(nc,S.cfg.settings.plantillaRenovado)+'">Avisar por WhatsApp</a></div>')}
-      else closeModal();
-    }).catch(fail).then(function(){busy($('#modal'),false)});
+      var link=w?waLink(nc,S.cfg.settings.plantillaRenovado):'';
+      if(link&&win){try{win.location.href=link}catch(e){win=null}}
+      else if(link&&isApp()){window.open(link,'_blank');win=true}
+      if(link&&!win){openModal('<h3>Renovado ✅</h3><p>'+esc(c.username)+' vence ahora el <b>'+fdate(nc.exp)+'</b>.</p><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button><a class="btn wa" target="_blank" onclick="closeModal()" href="'+link+'">Avisar por WhatsApp</a></div>')}
+      else{closeModal();if(link)toast('Renovado ✅ · abriendo WhatsApp')}
+    }).catch(function(e){if(win&&win.close)try{win.close()}catch(x){}fail(e)}).then(function(){busy($('#modal'),false)});
   };
 }
 function suspClient(id){var c=byId(id);var re=c.status==='suspended';ask((re?'¿Reactivar a ':'¿Suspender a ')+c.username+'?',re?'Reactivar':'Suspender').then(function(ok){if(!ok)return;
@@ -1144,7 +1163,7 @@ function vAjustes(){
    (A?'<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Clave API del super admin</h3><p><span class="tag t-ok">Configurada ✓</span></p><p class="mut small">Solo cambiala si regeneraste tu clave en Servex.</p>'+
    '<div class="bar"><input id="key" type="password" placeholder="sx_..." style="flex:1;min-width:200px"><button class="btn p" id="ksave">Cambiar clave</button></div></div>':'')+
    '<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Cobros y avisos</h3><form id="sf" class="f">'+
-   '<label>Precio mensual por defecto ($)<input name="precioMes" type="number" value="'+esc(s.precioMes)+'"></label>'+
+   '<label>Precio mensual por conexión ($)<input name="precioMes" type="number" value="'+esc(s.precioMes)+'"></label>'+
    (A?'<label>Límite de conexiones de tu cuenta<input name="limiteCuenta" type="number" value="'+esc(s.limiteCuenta)+'"></label>'+
      '<label>Control: máx. conexiones por cliente de revendedor<input name="maxConexRev" type="number" min="1" value="'+esc(s.maxConexRev)+'"></label>'+
      '<label>Control: máx. días de vencimiento para revendedores<input name="maxDiasRev" type="number" min="1" value="'+esc(s.maxDiasRev)+'"></label>':'')+
