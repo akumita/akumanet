@@ -99,6 +99,13 @@ tbody tr:hover td,tr:hover td{background:var(--hover)}
 #nbox{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.45);animation:npop .22s ease-out}
 @keyframes npop{from{transform:translateY(12px) scale(.97);opacity:0}to{transform:none;opacity:1}}
 .nhead{padding:22px 22px 14px;text-align:center}
+.nimg{background:#000;line-height:0}.nimg img{display:block;width:100%;max-height:52vh;object-fit:contain}
+.nimg .ph{height:180px;display:flex;align-items:center;justify-content:center;color:#888;line-height:1.4}
+.nimg + .nhead{padding-top:16px}
+.imgpick{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.f .imgpick label.btn{flex-direction:row;color:var(--txt);font-size:12px;gap:6px}
+.imgpick .th{width:110px;height:72px;border-radius:8px;border:1px dashed var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--card2);color:var(--mut);font-size:11px}
+.imgpick .th img{width:100%;height:100%;object-fit:cover}
 .nicon{width:60px;height:60px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:30px;margin-bottom:10px}
 .n-info .nicon{background:var(--accbg);color:var(--acc2)}.n-oferta .nicon{background:var(--okbg);color:var(--ok)}.n-urgente .nicon{background:var(--badbg);color:var(--bad)}
 .nhead h3{margin:0;font-size:19px;font-weight:700}
@@ -822,7 +829,19 @@ function debtDlg(user){
 
 /* ============ NOTIFICACIONES (ventanas emergentes) ============ */
 var NTYPE={info:{icon:'info-circle',label:'Información'},oferta:{icon:'gift',label:'Oferta'},urgente:{icon:'alert-triangle',label:'Urgente'}};
-S.notices=null;var NQUEUE=[];
+S.notices=null;var NQUEUE=[];S.imgCache={};
+function loadImg(id){if(!id)return Promise.resolve('');if(S.imgCache[id])return Promise.resolve(S.imgCache[id]);return call('getImage',id).then(function(d){S.imgCache[id]=d||'';return d||''})}
+/** Achica la imagen en el navegador (máx. 900 px de ancho) para que pese poco. */
+function shrinkImage(file){return new Promise(function(res,rej){
+  if(!file||!/^image\//.test(file.type))return rej(new Error('Elegí un archivo de imagen.'));
+  var fr=new FileReader();fr.onerror=function(){rej(new Error('No se pudo leer la imagen.'))};
+  fr.onload=function(){var im=new Image();im.onerror=function(){rej(new Error('No se pudo abrir la imagen.'))};
+    im.onload=function(){var w=im.width,h=im.height,s=Math.min(1,900/w,1400/h);var cv=document.createElement('canvas');cv.width=Math.round(w*s);cv.height=Math.round(h*s);
+      var g=cv.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,cv.width,cv.height);g.drawImage(im,0,0,cv.width,cv.height);
+      var q=0.82,out=cv.toDataURL('image/jpeg',q);while(out.length>550000&&q>0.4){q-=0.12;out=cv.toDataURL('image/jpeg',q)}
+      if(out.length>590000)return rej(new Error('La imagen es muy pesada. Probá con una más chica.'));res(out)};
+    im.src=fr.result};
+  fr.readAsDataURL(file)})}
 function loadNotices(popups){
   return call('getNotices').then(function(r){
     S.notices=r;
@@ -843,12 +862,16 @@ function showNoticeBox(item,count){
   var wa=exp?adminWaLink('Hola! Quiero abonar mi panel AkumaNet ('+(S.me&&S.me.name||'')+').'):(d.boton?adminWaLink('Hola! Me interesa: '+d.titulo):'');
   var btnTxt=exp?'Abonar por WhatsApp':(d.boton||'');
   $('#nbox').className='n-'+tipo;
-  $('#nbox').innerHTML='<div class="nhead"><div class="nicon"><i class="ti ti-'+icon+'"></i></div><h3>'+esc(d.titulo)+'</h3></div>'+
+  var hasImg=!exp&&(d.imgData||d.img);
+  $('#nbox').innerHTML=(hasImg?'<div class="nimg"><img id="nimgEl" alt="" style="display:none"><div class="ph" id="nimgPh">Cargando imagen…</div></div>':'')+
+   '<div class="nhead">'+(hasImg?'':'<div class="nicon"><i class="ti ti-'+icon+'"></i></div>')+'<h3>'+esc(d.titulo)+'</h3></div>'+
    '<div class="nbody">'+esc(d.mensaje)+'</div>'+(count>1?'<div class="ncount" style="margin-top:8px">'+count+' avisos</div>':'')+
    '<div class="nfoot">'+(wa&&btnTxt?'<a class="btn wa" target="_blank" href="'+wa+'" onclick="closeNotice()"><i class="ti ti-brand-whatsapp"></i>'+esc(btnTxt)+'</a>':'')+
    '<button class="btn '+(wa&&btnTxt?'':'p')+'" onclick="closeNotice()">Entendido</button></div>';
   $('#nbg').style.display='flex';
   $('#nbg')._item=item;
+  if(hasImg){(d.imgData?Promise.resolve(d.imgData):loadImg(d.img)).then(function(src){var el=document.getElementById('nimgEl'),ph=document.getElementById('nimgPh');
+    if(!el)return;if(src){el.src=src;el.style.display='block';if(ph)ph.remove()}else if(ph)ph.textContent='No se pudo cargar la imagen.'}).catch(function(){var ph=document.getElementById('nimgPh');if(ph)ph.textContent='No se pudo cargar la imagen.'})}
 }
 function nextNotice(){if(!NQUEUE.length){$('#nbg').style.display='none';return}var it=NQUEUE.shift();showNoticeBox(it,NQUEUE.length+1)}
 function closeNotice(){
@@ -877,7 +900,7 @@ function vNotificaciones(){
      '<div class="bar"><button class="btn p" onclick="noticeDlg()"><i class="ti ti-plus"></i>Nueva notificación</button></div>'+
      (list.length?'<div class="tablewrap" style="margin-bottom:22px"><table><tr><th>Notificación</th><th class="hide-m">Para</th><th>Vigencia</th><th>Acciones</th></tr>'+list.map(function(n,i){
        var act=(!n.hasta||n.hasta>=hoy)&&(!n.desde||n.desde<=hoy);
-       return '<tr><td><b><i class="ti ti-'+(NTYPE[n.tipo]||NTYPE.info).icon+'"></i> '+esc(n.titulo)+'</b><div class="mut small" style="max-width:380px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(n.mensaje)+'</div></td>'+
+       return '<tr><td><b><i class="ti ti-'+(NTYPE[n.tipo]||NTYPE.info).icon+'"></i> '+esc(n.titulo)+'</b>'+(n.img?' <span class="tag t-mut"><i class="ti ti-photo"></i> imagen</span>':'')+'<div class="mut small" style="max-width:380px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(n.mensaje)+'</div></td>'+
         '<td class="hide-m small">'+(n.para==='todos'?'Todos':(n.para||[]).length+' revendedor(es)')+'</td>'+
         '<td>'+(act?'<span class="tag t-ok">activa</span>':'<span class="tag t-mut">'+(n.desde>hoy?'programada':'vencida')+'</span>')+'<div class="mut small">'+(n.hasta?'hasta '+dDate(n.hasta):'sin vencimiento')+'</div></td>'+
         '<td class="acts"><button class="btn sm" onclick="previewNotice('+i+')"><i class="ti ti-eye"></i>Ver</button><button class="btn sm" onclick="noticeDlg('+i+')">Editar</button><button class="btn sm d" onclick="delNotice('+i+')">Borrar</button></td></tr>'}).join('')+'</table></div>'
@@ -905,6 +928,9 @@ function noticeDlg(i){
    '<label class="full">Tipo<span class="chips" id="ntipo" style="display:flex;gap:6px;margin-top:2px">'+['info','oferta','urgente'].map(function(t){return '<button type="button" data-t="'+t+'" class="'+((n?n.tipo:'info')===t?'act':'')+'"><i class="ti ti-'+NTYPE[t].icon+'"></i> '+NTYPE[t].label+'</button>'}).join('')+'</span><input type="hidden" name="tipo" value="'+(n?n.tipo:'info')+'"></label>'+
    '<label class="full">Título<input name="titulo" maxlength="120" required value="'+esc(n?n.titulo:'')+'" placeholder="🔥 Oferta de créditos de diciembre"></label>'+
    '<label class="full">Mensaje<textarea name="mensaje" maxlength="2000" required style="min-height:120px" placeholder="Este mes, 100 créditos a $X. Pedilos antes del 15/12.">'+esc(n?n.mensaje:'')+'</textarea></label>'+
+   '<label class="full">Imagen (opcional)<div class="imgpick"><div class="th" id="nth">sin imagen</div>'+
+   '<label class="btn sm" style="cursor:pointer"><i class="ti ti-photo-up"></i>Elegir imagen<input type="file" id="nfile" accept="image/*" style="display:none"></label>'+
+   '<button type="button" class="btn sm d" id="nimgDel" style="display:none">Quitar</button></div></label>'+
    '<label>Desde<input name="desde" type="date" value="'+esc(n?n.desde:isoDate(Date.now()))+'"></label>'+
    '<label>Hasta (opcional)<input name="hasta" type="date" value="'+esc(n?n.hasta:'')+'"></label>'+
    '<label class="full">Botón de WhatsApp (opcional)<input name="boton" maxlength="40" value="'+esc(n?n.boton:'')+'" placeholder="Quiero la oferta"></label>'+
@@ -913,14 +939,19 @@ function noticeDlg(i){
    (n?'<label class="full" style="flex-direction:row;align-items:center;gap:8px;color:var(--txt)"><input type="checkbox" name="reenviar" value="1"> Volver a mostrarla a quienes ya la vieron</label>':'')+
    '</form><p class="mut small">El botón de WhatsApp abre un chat con tu número (lo configurás abajo, en "Aviso de vencimiento").</p>'+
    '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn" id="nprev"><i class="ti ti-eye"></i>Vista previa</button><button class="btn p" id="nsave">'+(n?'Guardar':'Publicar')+'</button></div>');
-  var todos=para==='todos';
+  var todos=para==='todos',IMG={id:n?n.img||'':'',data:null};
+  function paintThumb(src){var th=$('#nth');if(!th)return;th.innerHTML=src?'<img src="'+src+'" alt="">':(IMG.id?'cargando…':'sin imagen');$('#nimgDel').style.display=(src||IMG.id)?'inline-flex':'none'}
+  if(IMG.id){paintThumb('');loadImg(IMG.id).then(function(s){if(!IMG.data)paintThumb(s)})}
+  $('#nfile').onchange=function(){var f=this.files[0];if(!f)return;$('#nth').textContent='achicando…';
+    shrinkImage(f).then(function(d){IMG.data=d;paintThumb(d);toast('Imagen lista ('+Math.round(d.length*0.75/1024)+' KB)')}).catch(function(e){paintThumb(IMG.id?S.imgCache[IMG.id]:'');fail(e)});this.value=''};
+  $('#nimgDel').onclick=function(){IMG={id:'',data:null};paintThumb('')};
   $('#ntipo').onclick=function(e){var b=e.target.closest('button');if(!b)return;[].forEach.call(this.children,function(x){x.classList.toggle('act',x===b)});$('#nf').tipo.value=b.dataset.t};
   $('#npt').onclick=function(){todos=true;this.classList.add('act');$('#npa').classList.remove('act');$('#nres').style.display='none'};
   $('#npa').onclick=function(){todos=false;this.classList.add('act');$('#npt').classList.remove('act');$('#nres').style.display='block'};
-  function data(){var fd=new FormData($('#nf')),o=Object.fromEntries(fd.entries());o.para=todos?'todos':fd.getAll('rid');delete o.rid;o.reenviar=!!o.reenviar;if(n){o.id=n.id;o.creada=n.creada}return o}
+  function data(){var fd=new FormData($('#nf')),o=Object.fromEntries(fd.entries());o.para=todos?'todos':fd.getAll('rid');delete o.rid;o.reenviar=!!o.reenviar;if(n){o.id=n.id;o.creada=n.creada}o.img=IMG.id;if(IMG.data)o.imgData=IMG.data;return o}
   $('#nprev').onclick=function(){var o=data();if(!o.titulo||!o.mensaje)return toast('Completá el título y el mensaje',true);showNoticeBox({preview:true,data:o},1)};
   $('#nsave').onclick=function(){var o=data();if(!o.titulo||!o.mensaje)return toast('Completá el título y el mensaje',true);busy($('#modal'),true);
-    call('saveNotice',o).then(function(){closeModal();toast(n?'Notificación actualizada':'Notificación publicada ✅');vNotificaciones()}).catch(fail).then(function(){busy($('#modal'),false)})};
+    (IMG.data?call('uploadImage',IMG.data).then(function(id){IMG={id:id,data:null};o.img=id;S.imgCache[id]=o.imgData}):Promise.resolve()).then(function(){delete o.imgData;return call('saveNotice',o)}).then(function(){closeModal();toast(n?'Notificación actualizada':'Notificación publicada ✅');vNotificaciones()}).catch(fail).then(function(){busy($('#modal'),false)})};
 }
 
 function vAvisos(){
