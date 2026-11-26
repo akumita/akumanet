@@ -85,6 +85,15 @@ tbody tr:hover td,tr:hover td{background:var(--hover)}
 .f .full{grid-column:1/-1}
 .dur{display:flex;gap:6px}.dur>*{flex:1;min-width:0}
 .mfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap}
+.selbar{display:none;position:sticky;top:62px;z-index:15;align-items:center;gap:6px;flex-wrap:wrap;background:var(--card);border:1px solid var(--acc);border-radius:12px;padding:8px 10px;margin-bottom:10px;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+tr.selrow td{background:var(--accbg)}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--acc);cursor:pointer}
+.mchart{display:flex;gap:10px;align-items:flex-end;height:150px;padding-top:18px}
+.mchart .col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.mchart .mb{width:100%;max-width:56px;background:var(--acc);border-radius:6px 6px 0 0;min-height:3px}
+.mchart .v{font-size:11px;color:var(--mut);margin-bottom:4px;white-space:nowrap}
+.mchart .m{font-size:11px;color:var(--mut);margin-top:6px}
+.impbar{background:var(--warn);color:#1a1200;padding:8px 14px;display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px;position:sticky;top:0;z-index:40}
 .ucell{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .kbtn{background:none;border:0;color:var(--mut);width:32px;height:32px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:19px;flex:none}
 .kbtn:hover,.kbtn.on{background:var(--hover);color:var(--txt)}
@@ -308,7 +317,7 @@ function boot(){
   call('getConfig').then(function(cfg){
     S.cfg=cfg;S.me=cfg.me;
     if(S.me.needsProfile)return vProfile();
-    shell();S.view='inicio';render();startWs();loadNotices(true);
+    shell();impBanner();S.view='inicio';render();startWs();loadNotices(!adminTok());loadNotes();
     if(cfg.hasKey){loadClients();loadDebts();loadResellers()}
   }).catch(function(e){if(S.token)vLogin(e.message||String(e))});
 }
@@ -459,12 +468,20 @@ function vClientes(){
   $('#main').innerHTML=
     '<div class="bar"><input id="q" placeholder="Buscar usuario, WhatsApp, nota…" style="flex:1;min-width:160px" value="'+esc(S.search)+'">'+
     '<button class="btn p" onclick="clientDlg()">+ Nuevo</button><button class="btn" onclick="clientDlg(null,true)">+ Prueba</button><button class="btn" onclick="loadClients().then(function(){toast(\'Actualizado\')})">↻</button></div>'+
+    '<div class="bar"><button class="btn sm" onclick="bulkDlg()"><i class="ti ti-table-import"></i>Alta masiva</button><button class="btn sm" onclick="exportClients()"><i class="ti ti-file-spreadsheet"></i>Exportar</button><button class="btn sm" onclick="cleanExpiredDlg()"><i class="ti ti-trash-x"></i>Limpiar vencidos</button></div>'+
     (A?'<div class="bar chips" id="scopes">'+[['mios','Míos'],['rev','De revendedores'],['todos','Todos']].map(function(f){return '<button data-s="'+f[0]+'" class="'+(S.scope===f[0]?'act':'')+'">'+f[1]+'</button>'}).join('')+
     '<select id="rsel" style="display:'+(S.scope==='mios'?'none':'inline-block')+'"><option value="">Todos los revendedores</option>'+resellerNames().map(function(r){return '<option value="'+esc(r[0])+'" '+(S.reseller===r[0]?'selected':'')+'>'+esc(r[0])+' ('+r[1]+')</option>'}).join('')+'</select></div>':'')+
     '<div class="bar chips" id="chips">'+
     [['todos','Todos'],['online','En línea'],['offline','Desconectados'],['hoy','Vencen hoy'],['pronto','≤5 días'],['vencidos','Vencidos'],['suspendidos','Suspendidos'],['pruebas','Pruebas'],['sinwa','Sin WhatsApp']]
       .map(function(f){return '<button data-f="'+f[0]+'" class="'+(S.filter===f[0]?'act':'')+'">'+f[1]+'</button>'}).join('')+
-    '</div><div class="mut" id="cnt" style="margin-bottom:6px"></div><div class="tablewrap"><table id="ctable"></table></div>';
+    '</div><div class="mut" id="cnt" style="margin-bottom:6px"></div>'+
+    '<div id="selbar" class="selbar"><b>0 seleccionados</b><span style="flex:1"></span>'+
+    '<button class="btn sm p" onclick="batchDo(\'renew\')"><i class="ti ti-refresh"></i>Renovar</button>'+
+    '<button class="btn sm" onclick="batchDo(\'suspend\')"><i class="ti ti-player-pause"></i>Suspender</button>'+
+    '<button class="btn sm" onclick="batchDo(\'resume\')"><i class="ti ti-player-play"></i>Reactivar</button>'+
+    '<button class="btn sm d" onclick="batchDo(\'delete\')"><i class="ti ti-trash"></i>Eliminar</button>'+
+    '<button class="btn sm" onclick="S.sel={};drawClients()">Quitar selección</button></div>'+
+    '<div class="tablewrap"><table id="ctable"></table></div>';
   $('#q').addEventListener('input',function(e){S.search=e.target.value;drawClients()});
   $('#chips').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;S.filter=b.dataset.f;[].forEach.call(this.children,function(x){x.classList.toggle('act',x===b)});drawClients()});
   if(A){
@@ -501,13 +518,13 @@ function drawClients(){
   var onN=list.filter(function(c){return isOnline(c.username)}).length;
   $('#cnt').textContent=list.length+' de '+base.length+' clientes · '+onN+' en línea';
   var mx=Number(S.cfg.settings.maxConexRev)||1;
-  t.innerHTML='<tr><th onclick="S.sort=\'online\';drawClients()">●</th><th onclick="S.sort=\'user\';drawClients()">Usuario</th>'+(showR?'<th>Revendedor</th>':'')+'<th onclick="S.sort=\'dias\';drawClients()">Vence</th><th class="hide-m">Conex.</th><th class="hide-m">Método</th><th class="hide-m">WhatsApp</th><th>Acciones</th></tr>'+
+  t.innerHTML='<tr><th style="width:34px"><input type="checkbox" id="selall" onclick="event.stopPropagation();selAll(this.checked)" aria-label="Seleccionar todos"></th><th onclick="S.sort=\'online\';drawClients()">●</th><th onclick="S.sort=\'user\';drawClients()">Usuario</th>'+(showR?'<th>Revendedor</th>':'')+'<th onclick="S.sort=\'dias\';drawClients()">Vence</th><th class="hide-m">Conex.</th><th class="hide-m">Método</th><th class="hide-m">WhatsApp</th><th>Acciones</th></tr>'+
   list.map(function(c){
     var o=isOnline(c.username);
     var l=waLink(c,c.dias<0?S.cfg.settings.plantillaVencido:S.cfg.settings.plantillaAviso);
     var bad=(o&&o.connection_count>c.limit)||(isAdmin()&&!c.own&&c.limit>mx);
-    return '<tr><td><span class="dot '+(o?'on':'')+'" title="'+(o?'En línea desde '+fdt(o.connected_at):'Desconectado')+'"></span></td>'+
-      '<td><div class="ucell"><div><b>'+esc(c.username)+'</b>'+(c.status==='suspended'?' <span class="tag t-mut">suspendido</span>':'')+(c.type==='test'?' <span class="tag t-mut">prueba</span>':'')+(c.own&&debtFor(c.username)?' <span class="tag t-warn" title="Debe">debe '+money(debtFor(c.username))+'</span>':'')+'<div class="mut small">'+esc(c.tag||'')+(c.nota?' · '+esc(c.nota).slice(0,40):'')+'</div></div>'+
+    return '<tr'+(S.sel[c.id]?' class="selrow"':'')+'><td><input type="checkbox" '+(S.sel[c.id]?'checked':'')+' onclick="toggleSel('+c.id+',this.checked,this)" aria-label="Seleccionar"></td><td><span class="dot '+(o?'on':'')+'" title="'+(o?'En línea desde '+fdt(o.connected_at):'Desconectado')+'"></span></td>'+
+      '<td><div class="ucell"><div><b>'+esc(c.username)+'</b>'+(c.status==='suspended'?' <span class="tag t-mut">suspendido</span>':'')+(c.type==='test'?' <span class="tag t-mut">prueba</span>':'')+(c.own&&debtFor(c.username)?' <span class="tag t-warn" title="Debe">debe '+money(debtFor(c.username))+'</span>':'')+(isAdmin()&&S.notes&&S.notes['c:'+c.id]?' <i class="ti ti-notes" style="color:var(--warn)" title="'+esc(S.notes['c:'+c.id])+'"></i>':'')+'<div class="mut small">'+esc(c.tag||'')+(c.nota?' · '+esc(c.nota).slice(0,40):'')+'</div></div>'+
        '<button class="kbtn" onclick="clientMenu(event,'+c.id+')" aria-label="Acciones"><i class="ti ti-dots-vertical"></i></button></div></td>'+
       (showR?'<td>'+(c.own?'<span class="mut">Yo</span>':esc(c.reseller||'?'))+'</td>':'')+
       '<td>'+diasTag(c.dias,c.status)+'<div class="mut small">'+fdate(c.exp)+'</div></td>'+
@@ -517,6 +534,7 @@ function drawClients(){
       '<td class="acts"><button class="btn sm p" onclick="renewDlg('+c.id+')">Renovar</button>'+
       (l?'<a class="btn sm wa" target="_blank" href="'+l+'"><i class="ti ti-brand-whatsapp"></i>WA</a>':'')+'</td></tr>';
   }).join('');
+  paintSel();
 }
 /* ============ días <-> calendario ============ */
 function pad2(n){return (n<10?'0':'')+n}
@@ -572,6 +590,7 @@ function clientMenu(ev,id){
     {icon:'edit',label:'Editar',fn:function(){clientDlg(id)}}];
   if(l)items.push({icon:'brand-whatsapp',label:'Enviar WhatsApp',fn:function(){window.open(l,'_blank')}});
   if(c.own)items.push({icon:'cash-banknote',label:'Anotar deuda',fn:function(){debtDlg(c.username)}});
+  if(isAdmin())items.push({icon:'notes',label:(S.notes&&S.notes['c:'+id])?'Ver nota interna':'Nota interna',fn:function(){noteDlg('c:'+id,c.username)}});
   items.push('-');
   items.push(susp?{icon:'player-play',label:'Reactivar',cls:'ok',fn:function(){suspClient(id)}}
                  :{icon:'player-pause',label:'Suspender',cls:'warn',fn:function(){suspClient(id)}});
@@ -586,11 +605,15 @@ function resMenu(ev,id){
     {icon:'list-details',label:'Resumen de clientes',fn:function(){resClients(id)}},
     {icon:'refresh',label:'Renovar',fn:function(){resRenew(id)}},
     {icon:'edit',label:'Editar',fn:function(){resDlg(id)}},
+    {icon:'users-plus',label:'Cambiar cupo',fn:function(){cupoDlg(id)}},
+    {icon:'cash-banknote',label:'Anotar deuda',fn:function(){debtDlg(r.name)}}].concat(isAdmin()?[
+    {icon:'eye',label:'Ver como '+r.name,fn:function(){viewAs(id)}},
+    {icon:'notes',label:(S.notes&&S.notes['r:'+id])?'Ver nota interna':'Nota interna',fn:function(){noteDlg('r:'+id,r.name)}}]:[]).concat([
     '-',
     activo?{icon:'player-pause',label:'Suspender (con sus clientes)',cls:'warn',fn:function(){resToggle(id)}}
           :{icon:'player-play',label:'Reactivar (con sus clientes)',cls:'ok',fn:function(){resToggle(id)}},
     {icon:'trash',label:'Eliminar',cls:'bad',fn:function(){resDel(id)}}
-  ]);
+  ]));
 }
 
 function byId(id){for(var i=0;i<S.clients.length;i++)if(S.clients[i].id===id)return S.clients[i]}
@@ -632,6 +655,7 @@ function infoDlg(id){
   openModal('<h3>'+esc(c.username)+'</h3><table>'+
    [['Contraseña',c.password],['Tipo',c.type],['Estado',c.status],['Categoría',c.category],(isAdmin()||hasSubs()?['Revendedor',c.own?'Yo':c.reseller]:null),['Vence',fdt(c.exp)+' ('+diasTxt(c.dias)+')'],['Conexiones',(o?o.connection_count:0)+' / '+c.limit],['Método',o?o.connection_method:'OFF'],['Conectado desde',o?fdt(o.connected_at):'-'],['WhatsApp',c.wa||'-'],['Etiqueta',c.tag||'-'],['Nota',c.nota||'-'],['UUID V2Ray',c.uuid||'-']]
    .filter(Boolean).map(function(r){return '<tr><td class="mut">'+r[0]+'</td><td>'+esc(r[1])+'</td></tr>'}).join('')+
+   (isAdmin()&&S.notes&&S.notes['c:'+id]?'<tr><td class="mut">Nota interna</td><td style="white-space:pre-wrap;color:var(--warn)">'+esc(S.notes['c:'+id])+'</td></tr>':'')+
    '</table><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button></div>');
 }
 function renewDlg(id){
@@ -688,8 +712,8 @@ function vRevendedores(){
 function resOnline(id){var r=resById(id);S.scope='rev';S.reseller=r.name;S.filter='todos';go('clientes')}
 function resById(id){for(var i=0;i<S.resellers.length;i++)if(S.resellers[i].id===id)return S.resellers[i]}
 function resRenew(id){var r=resById(id);
-  openModal('<h3>Renovar revendedor '+esc(r.name)+'</h3><p class="mut">Vence: '+fdate(r.expiration_date)+'</p><div class="f"><label>Días<select id="rrd"><option>30</option><option>15</option><option>60</option><option>90</option></select></label><label>Cobrado ($)<input id="rrm" type="number" value="0"></label></div><div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="rrgo">Renovar</button></div>');
-  $('#rrgo').onclick=function(){busy($('#modal'),true);call('renewReseller',id,r.username,$('#rrd').value,$('#rrm').value).then(function(){closeModal();toast('Revendedor renovado ✅');vRevendedores()}).catch(fail).then(function(){busy($('#modal'),false)})};
+  openModal('<h3>Renovar revendedor '+esc(r.name)+'</h3><p class="mut">Vence: '+fdate(r.expiration_date)+'</p><div class="f"><label>Días<select id="rrd"><option>30</option><option>15</option><option>60</option><option>90</option></select></label><label><span id="rrlab">Cobrado ($)</span><input id="rrm" type="number" value="0"></label>'+payToggle('rrpay','rrlab')+'</div><div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="rrgo">Renovar</button></div>');
+  $('#rrgo').onclick=function(){busy($('#modal'),true);call('renewReseller',id,r.username,$('#rrd').value,$('#rrm').value,isDebe('rrpay'),r.name).then(function(){if(isDebe('rrpay'))loadDebts();closeModal();toast('Revendedor renovado ✅');vRevendedores()}).catch(fail).then(function(){busy($('#modal'),false)})};
 }
 function resDlg(id){
   var r=id?resById(id):null;
@@ -825,6 +849,117 @@ function debtDlg(user){
   $('#dgo').onclick=function(){var u=$('#du').value.trim(),mo=Number($('#dm').value);if(!u)return toast('Elegí el cliente',true);if(!(mo>0))return toast('Poné el monto',true);
     var cl=S.clients.filter(function(c){return c.username.toLowerCase()===u.toLowerCase()})[0];busy($('#modal'),true);
     call('addDebt',u,mo,$('#dd').value,cl?cl.wa:'').then(function(){closeModal();toast('Deuda anotada');if(S.view==='deudas')vDeudas();else loadDebts()}).catch(fail).then(function(){busy($('#modal'),false)})};
+}
+
+/* ============ SELECCIÓN Y ACCIONES EN LOTE ============ */
+S.sel={};
+function selIds(){return Object.keys(S.sel).filter(function(k){return S.sel[k]}).map(Number)}
+function selItems(){return selIds().map(byId).filter(Boolean)}
+function paintSel(){var n=selIds().length,b=$('#selbar');if(b){b.style.display=n?'flex':'none';b.querySelector('b').textContent=n+(n===1?' seleccionado':' seleccionados')}
+  var all=$('#selall');if(all){var l=filteredClients();all.checked=l.length>0&&l.every(function(c){return S.sel[c.id]})}}
+function toggleSel(id,on,el){S.sel[id]=on;if(el){var tr=el.closest('tr');if(tr)tr.classList.toggle('selrow',on)}paintSel()}
+function selAll(on){filteredClients().forEach(function(c){S.sel[c.id]=on});drawClients()}
+function batchResult(title,r){
+  openModal('<h3>'+esc(title)+'</h3><p><b style="color:var(--ok)">'+r.ok+' listo(s)</b>'+(r.fallos.length?' · <b style="color:var(--bad)">'+r.fallos.length+' con error</b>':'')+'</p>'+
+   (r.fallos.length?'<div class="tablewrap" style="max-height:40vh;overflow:auto"><table>'+r.fallos.map(function(f){return '<tr><td><b>'+esc(f.username)+'</b></td><td class="small" style="color:var(--bad)">'+esc(f.error)+'</td></tr>'}).join('')+'</table></div>':'')+
+   '<div class="mfoot"><button class="btn p" onclick="closeModal()">Listo</button></div>');
+}
+function runBatch(action,list,days,title){
+  var items=list.map(function(c){return {id:c.id,username:c.username}});
+  openModal('<h3>'+esc(title)+'</h3><p class="mut">Procesando '+items.length+' cliente(s)… no cierres esta ventana.</p>');
+  call('batchClients',action,items,days).then(function(r){S.sel={};batchResult(title,r);loadClients().then(function(){if(S.view==='control')vControl()})}).catch(function(e){closeModal();fail(e)});
+}
+function batchDo(kind){
+  var list=selItems();if(!list.length)return toast('No hay clientes seleccionados',true);
+  if(kind==='renew'){
+    openModal('<h3>Renovar '+list.length+' cliente(s)</h3><div class="f"><label class="full">Días a sumar a cada uno<span class="dur"><input id="bd" type="number" min="1" value="30"></span>'+
+     '<span class="chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">'+[7,15,30,60,90].map(function(d){return '<button type="button" onclick="document.getElementById(\'bd\').value='+d+'">'+d+' días</button>'}).join('')+'</span></label></div>'+
+     '<p class="mut small">'+esc(list.slice(0,12).map(function(c){return c.username}).join(', '))+(list.length>12?' y '+(list.length-12)+' más':'')+'</p>'+
+     '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="bgo">Renovar todos</button></div>');
+    $('#bgo').onclick=function(){var d=Number($('#bd').value);if(!(d>0))return toast('Poné los días',true);runBatch('renew',list,d,'Renovación en lote')};
+    return;
+  }
+  var target=kind==='suspend'?list.filter(function(c){return c.status!=='suspended'}):kind==='resume'?list.filter(function(c){return c.status==='suspended'}):list;
+  if(!target.length)return toast(kind==='suspend'?'Todos los seleccionados ya están suspendidos':'Ninguno de los seleccionados está suspendido',true);
+  var txt={suspend:'¿Suspender '+target.length+' cliente(s)?',resume:'¿Reactivar '+target.length+' cliente(s)?',delete:'¿ELIMINAR definitivamente '+target.length+' cliente(s)? No se puede deshacer.'}[kind];
+  ask(txt,{suspend:'Suspender',resume:'Reactivar',delete:'Eliminar'}[kind],kind==='delete').then(function(ok){if(!ok)return;
+    runBatch(kind==='delete'?'delete':'suspend',target,0,{suspend:'Suspensión en lote',resume:'Reactivación en lote',delete:'Baja en lote'}[kind])});
+}
+function cleanExpiredDlg(){
+  var A=isAdmin()||hasSubs();
+  openModal('<h3><i class="ti ti-trash-x"></i> Limpiar vencidos</h3><p class="mut small">Elimina de Servex los clientes que vencieron hace más de los días que elijas (libera cupo). Podés revisar la lista antes de confirmar.</p>'+
+   '<div class="f"><label>Vencidos hace más de (días)<input id="cxd" type="number" min="0" value="7"></label>'+
+   (A?'<label style="flex-direction:row;align-items:center;gap:8px;align-self:end;color:var(--txt)"><input type="checkbox" id="cxr"> Incluir los de mis revendedores</label>':'')+'</div>'+
+   '<div id="cxl" style="margin-top:10px"></div><div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn d" id="cxgo">Eliminar</button></div>');
+  function list(){var d=Number($('#cxd').value)||0,inc=$('#cxr')&&$('#cxr').checked;return S.clients.filter(function(c){return c.dias<-d&&(c.own||inc)}).sort(function(a,b){return a.dias-b.dias})}
+  function paint(){var l=list();$('#cxl').innerHTML=l.length?'<p><b>'+l.length+'</b> cliente(s):</p><div class="tablewrap" style="max-height:34vh;overflow:auto"><table>'+l.map(function(c){return '<tr><td>'+esc(c.username)+'</td><td>'+diasTag(c.dias,c.status)+'</td><td class="mut small">'+(c.own?'mío':esc(c.reseller||''))+'</td></tr>'}).join('')+'</table></div>':'<p class="mut">No hay clientes vencidos hace tanto tiempo.</p>';$('#cxgo').textContent=l.length?'Eliminar '+l.length:'Eliminar'}
+  $('#cxd').oninput=paint;if($('#cxr'))$('#cxr').onchange=paint;paint();
+  $('#cxgo').onclick=function(){var l=list();if(!l.length)return;ask('¿ELIMINAR definitivamente '+l.length+' cliente(s) vencidos? No se puede deshacer.','Eliminar',true).then(function(ok){if(ok)runBatch('delete',l,0,'Limpieza de vencidos')})};
+}
+
+/* ============ EXPORTAR Y ALTA MASIVA ============ */
+function exportClients(){
+  var list=selItems();if(!list.length)list=filteredClients();
+  if(!list.length)return toast('No hay clientes para exportar',true);
+  var head=['Usuario','Contraseña','Revendedor','Vence','Días','Estado','Conexiones','Tipo','Categoría','WhatsApp','Etiqueta','Nota','Debe'];
+  var rows=list.map(function(c){return [c.username,c.password,c.own?'(mío)':c.reseller||'',fdate(c.exp),c.dias,c.status==='suspended'?'suspendido':c.dias<0?'vencido':'activo',c.limit,c.type==='test'?'prueba':'usuario',c.category||'',c.wa||'',c.tag||'',c.nota||'',c.own?debtFor(c.username)||'':'']});
+  if(isAdmin()){
+    toast('Creando la planilla…');
+    call('exportSheet','Clientes ('+list.length+')',head,rows).then(function(url){
+      openModal('<h3>Planilla lista ✅</h3><p>Se creó una planilla de Google con '+list.length+' cliente(s) en tu Drive.</p><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button><a class="btn p" target="_blank" href="'+esc(url)+'" onclick="closeModal()"><i class="ti ti-external-link"></i>Abrir planilla</a></div>')}).catch(fail);
+  }else{
+    var csv='﻿'+[head].concat(rows).map(function(r){return r.map(function(x){x=String(x==null?'':x);return /[";\n]/.test(x)?'"'+x.replace(/"/g,'""')+'"':x}).join(';')}).join('\r\n');
+    var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='clientes-'+isoDate(Date.now())+'.csv';document.body.appendChild(a);a.click();setTimeout(function(){a.remove()},500);
+    toast('Descargando '+list.length+' cliente(s)');
+  }
+}
+function parseBulk(txt){
+  return String(txt||'').split(/\r?\n/).map(function(l){return l.trim()}).filter(Boolean).map(function(l){
+    var p=l.split(/\t|;|,/).map(function(x){return x.trim()});
+    return {username:p[0]||'',password:p[1]||genPass(),days:Number(p[2])||30,limit:Number(p[3])||1,wa:p[4]||''};
+  }).filter(function(r){return /^[A-Za-z0-9_.\-]{3,}$/.test(r.username)});
+}
+function bulkDlg(){
+  ensureCats().then(function(cats){
+    openModal('<h3><i class="ti ti-table-import"></i> Alta masiva</h3><p class="mut small">Pegá un cliente por línea: <b>usuario; contraseña; días; conexiones; WhatsApp</b>. Solo el usuario es obligatorio (contraseña al azar, 30 días y 1 conexión por defecto). Podés copiar las columnas desde Excel.</p>'+
+     '<div class="f"><label class="full">Clientes<textarea id="bt" style="min-height:150px;font-family:ui-monospace,monospace" placeholder="JUAN123;4521;30;1;+54 9 11 1234-5678&#10;MARIA88;;30&#10;PEDRO77"></textarea></label>'+
+     '<label>Categoría<select id="bc">'+(cats||[]).map(function(k){return '<option value="'+k.id+'">'+esc(k.name)+'</option>'}).join('')+'</select></label><label>&nbsp;<span id="bn" class="mut" style="padding-top:10px">0 clientes válidos</span></label></div>'+
+     '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="bgo2">Crear</button></div>');
+    $('#bt').oninput=function(){var n=parseBulk(this.value).length;$('#bn').textContent=n+(n===1?' cliente válido':' clientes válidos');$('#bgo2').textContent=n?'Crear '+n:'Crear'};
+    $('#bgo2').onclick=function(){var rows=parseBulk($('#bt').value);if(!rows.length)return toast('No hay clientes válidos',true);if(rows.length>100)return toast('Máximo 100 por vez',true);
+      var cat=$('#bc').value;openModal('<h3>Alta masiva</h3><p class="mut">Creando '+rows.length+' cliente(s)… no cierres esta ventana.</p>');
+      call('bulkCreate',rows,cat).then(function(r){batchResult('Alta masiva',r);loadClients()}).catch(function(e){closeModal();fail(e)})};
+  }).catch(fail);
+}
+
+/* ============ REVENDEDORES: cupo rápido, ver como, notas ============ */
+function cupoDlg(id){var r=resById(id);
+  openModal('<h3>Cupo de '+esc(r.name)+'</h3><p class="mut">Usa '+r._used+' de '+r.max_users+'.</p><div class="bar" style="justify-content:center;gap:10px">'+
+   '<button class="btn" onclick="cupoAdd(-5)">−5</button><button class="btn" onclick="cupoAdd(-1)">−1</button>'+
+   '<input id="cupo" type="number" min="0" value="'+r.max_users+'" style="width:90px;text-align:center;font-size:20px;font-weight:700">'+
+   '<button class="btn" onclick="cupoAdd(1)">+1</button><button class="btn" onclick="cupoAdd(5)">+5</button></div>'+
+   '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="cgo">Guardar</button></div>');
+  $('#cgo').onclick=function(){var v=Number($('#cupo').value);if(!(v>=0))return toast('Cupo inválido',true);if(v<r._used)return toast('No puede ser menor a lo que ya usa ('+r._used+')',true);
+    busy($('#modal'),true);call('updateReseller',id,{max_users:v,username:r.username}).then(function(){closeModal();toast('Cupo actualizado');vRevendedores()}).catch(fail).then(function(){busy($('#modal'),false)})};
+}
+function cupoAdd(n){var e=$('#cupo');e.value=Math.max(0,(Number(e.value)||0)+n)}
+function viewAs(id){var r=resById(id);
+  ask('¿Ver el panel tal como lo ve '+r.name+'? Vas a entrar con su cuenta (sus clientes, su cupo). Para volver tocá "Volver a mi panel" arriba.','Ver como '+r.name).then(function(ok){if(!ok)return;
+    call('impersonate',id).then(function(res){S.adminToken=S.token;store('pa_admin_token',S.token);resetState();S.token=res.token;S.me=res.me;store('pa_token',res.token);boot()}).catch(fail)})}
+function adminTok(){return S.adminToken||store('pa_admin_token')}
+function backToAdmin(){var t=S.token,a=adminTok();S.adminToken=null;rawCall('logout',[t]).catch(function(){});store('pa_admin_token',null);resetState();S.token=a;store('pa_token',a);boot()}
+function resetState(){var ib=document.querySelector('.impbar');if(ib)ib.remove();stopWs();S.clients=[];S.online={};S.servers={};S.resellers=[];S.debts=[];S.notices=null;S.cats=null;S.sel={};S.notes=null;S.view='inicio'}
+function impBanner(){var old=document.querySelector('.impbar');if(old)old.remove();if(!adminTok()||isAdmin())return;var b=document.createElement('div');b.className='impbar';
+  b.innerHTML='<i class="ti ti-eye"></i><span>Estás viendo el panel como <b>'+esc(S.me.name)+'</b></span><span style="flex:1"></span><button class="btn sm" onclick="backToAdmin()">Volver a mi panel</button>';
+  document.body.insertBefore(b,document.body.firstChild)}
+function loadNotes(){if(!isAdmin())return Promise.resolve({});return call('getNotes').then(function(n){S.notes=n||{};return S.notes}).catch(function(){S.notes={};return {}})}
+function noteDlg(key,title){
+  var cur=(S.notes||{})[key]||'';
+  openModal('<h3><i class="ti ti-notes"></i> Nota interna · '+esc(title)+'</h3><p class="mut small">Solo la ves vos. No se guarda en Servex.</p>'+
+   '<textarea id="nt" style="min-height:120px" maxlength="1000" placeholder="Ej: paga siempre los 5; le debo 2 días de compensación…">'+esc(cur)+'</textarea>'+
+   '<div class="mfoot">'+(cur?'<button class="btn d" id="ndel">Borrar nota</button><span style="flex:1"></span>':'')+'<button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="ngo">Guardar</button></div>');
+  function save(txt){call('saveNote',key,txt).then(function(n){S.notes=n;closeModal();toast(txt?'Nota guardada':'Nota borrada');if(S.view==='clientes')drawClients()}).catch(fail)}
+  $('#ngo').onclick=function(){save($('#nt').value)};if($('#ndel'))$('#ndel').onclick=function(){save('')};
 }
 
 /* ============ NOTIFICACIONES (ventanas emergentes) ============ */
@@ -975,7 +1110,17 @@ function avisado(u,id){call('markReminded',u).catch(fail);var tr=$('#av-'+id);if
 /* ============ HISTORIAL ============ */
 function vHistorial(){
   var A=isAdmin();
-  var m=$('#main');m.innerHTML='<div class="bar"><select id="hd"><option value="7">Últimos 7 días</option><option value="30" selected>30 días</option><option value="90">90 días</option><option value="365">1 año</option></select><button class="btn" onclick="payDlg()">+ Registrar pago</button>'+(A&&S.cfg.sheetUrl?'<a class="btn" target="_blank" href="'+S.cfg.sheetUrl+'">Abrir planilla</a>':'')+'</div><div id="hl" class="mut">Cargando…</div>';
+  var m=$('#main');m.innerHTML='<div class="bar"><select id="hd"><option value="7">Últimos 7 días</option><option value="30" selected>30 días</option><option value="90">90 días</option><option value="365">1 año</option></select><button class="btn" onclick="payDlg()">+ Registrar pago</button>'+(A&&S.cfg.sheetUrl?'<a class="btn" target="_blank" href="'+S.cfg.sheetUrl+'">Abrir planilla</a>':'')+'</div>'+
+    '<div class="card" style="margin-bottom:14px"><b><i class="ti ti-chart-bar"></i> Cobrado por mes</b><span class="mut small" id="chtot"></span><div class="mchart" id="mch"><span class="mut small">Cargando…</span></div></div><div id="hl" class="mut">Cargando…</div>';
+  call('getHistory',186).then(function(h){
+    var MES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'],now=new Date(),cols=[];
+    for(var i=5;i>=0;i--){var d=new Date(now.getFullYear(),now.getMonth()-i,1);cols.push({k:d.getFullYear()+'-'+pad2(d.getMonth()+1),m:MES[d.getMonth()],v:0})}
+    h.forEach(function(x){var k=String(x.fecha).slice(0,7);cols.forEach(function(c){if(c.k===k)c.v+=Number(x.monto)||0})});
+    var mx=Math.max.apply(null,cols.map(function(c){return c.v}).concat([1])),tot=cols.reduce(function(a,c){return a+c.v},0);
+    var el=document.getElementById('mch');if(!el)return;
+    el.innerHTML=cols.map(function(c,i){return '<div class="col"><div class="v">'+(c.v?money(c.v):'')+'</div><div class="mb" style="height:'+Math.max(2,c.v/mx*100)+'%;opacity:'+(i===5?1:.7)+'"></div><div class="m">'+c.m+'</div></div>'}).join('');
+    setTxt('chtot',' · '+money(tot)+' en 6 meses');
+  }).catch(function(){var el=document.getElementById('mch');if(el)el.innerHTML='<span class="mut small">No se pudo cargar el gráfico.</span>'});
   function load(){call('getHistory',Number($('#hd').value)).then(function(h){
     var tot=h.reduce(function(a,x){return a+(Number(x.monto)||0)},0);
     $('#hl').outerHTML='<div id="hl"><div class="grid" style="margin-bottom:12px"><div class="card kpi ok"><div class="l">Cobrado en el período</div><div class="v" style="font-size:22px">'+money(tot)+'</div></div><div class="card kpi"><div class="l">Movimientos</div><div class="v">'+h.length+'</div></div></div>'+
