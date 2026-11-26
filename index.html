@@ -737,7 +737,7 @@ function resRenew(id){var r=resById(id);
 function resDlg(id){
   var r=id?resById(id):null;
   ensureCats().then(function(cats){
-    var exp=r&&r.expiration_date?String(r.expiration_date).slice(0,10):new Date(Date.now()+30*864e5).toISOString().slice(0,10);
+    var exp=r&&r.expiration_date?isoDate(r.expiration_date):isoDate(Date.now()+30*864e5);
     openModal('<h3>'+(r?'Editar '+esc(r.name):'Nuevo revendedor')+'</h3><form id="rf" class="f">'+
      '<label>Nombre<input name="name" value="'+esc(r?r.name:'')+'"></label><label>Usuario<input name="username" value="'+esc(r?r.username:'')+'"></label>'+
      '<label>Contraseña<input name="password" placeholder="'+(r?'(sin cambios)':'')+'" value="'+(r?'':genPass())+'"></label>'+
