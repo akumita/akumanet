@@ -85,6 +85,16 @@ tbody tr:hover td,tr:hover td{background:var(--hover)}
 .f .full{grid-column:1/-1}
 .dur{display:flex;gap:6px}.dur>*{flex:1;min-width:0}
 .mfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap}
+.ucell{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.kbtn{background:none;border:0;color:var(--mut);width:32px;height:32px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:19px;flex:none}
+.kbtn:hover,.kbtn.on{background:var(--hover);color:var(--txt)}
+#kmenu{position:fixed;z-index:70;min-width:210px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:0 14px 36px rgba(0,0,0,.35);display:none}
+#kmenu .kh{font-size:11px;font-weight:600;color:var(--mut);padding:6px 10px 6px;text-transform:uppercase;letter-spacing:.6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px}
+#kmenu button{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;color:var(--txt);padding:9px 10px;border-radius:8px;font:inherit;font-weight:500;cursor:pointer;text-align:left}
+#kmenu button:hover{background:var(--hover)}
+#kmenu button i{font-size:18px;color:var(--mut)}
+#kmenu .warn,#kmenu .warn i{color:var(--warn)}#kmenu .bad,#kmenu .bad i{color:var(--bad)}#kmenu .ok,#kmenu .ok i{color:var(--ok)}
+#kmenu hr{border:0;border-top:1px solid var(--line);margin:5px 4px}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--txt);color:var(--bg);padding:10px 16px;border-radius:10px;display:none;z-index:99;max-width:90vw;font-weight:500}
 #toast.err{background:var(--bad);color:#fff}
 .loading{opacity:.5;pointer-events:none}
@@ -132,6 +142,7 @@ tbody tr:hover td,tr:hover td{background:var(--hover)}
 <div id="app"></div>
 <div class="modal-bg" id="mbg"><div class="modal" id="modal"></div></div>
 <div class="modal-bg" id="cbg" style="z-index:60"><div class="modal" id="cmodal" style="max-width:400px"></div></div>
+<div id="kmenu" role="menu"></div>
 <div id="toast"></div>
 
 <script>
@@ -460,16 +471,15 @@ function drawClients(){
     var l=waLink(c,c.dias<0?S.cfg.settings.plantillaVencido:S.cfg.settings.plantillaAviso);
     var bad=(o&&o.connection_count>c.limit)||(isAdmin()&&!c.own&&c.limit>mx);
     return '<tr><td><span class="dot '+(o?'on':'')+'" title="'+(o?'En línea desde '+fdt(o.connected_at):'Desconectado')+'"></span></td>'+
-      '<td><b>'+esc(c.username)+'</b>'+(c.type==='test'?' <span class="tag t-mut">prueba</span>':'')+(c.own&&debtFor(c.username)?' <span class="tag t-warn" title="Debe">debe '+money(debtFor(c.username))+'</span>':'')+'<div class="mut small">'+esc(c.tag||'')+(c.nota?' · '+esc(c.nota).slice(0,40):'')+'</div></td>'+
+      '<td><div class="ucell"><div><b>'+esc(c.username)+'</b>'+(c.status==='suspended'?' <span class="tag t-mut">suspendido</span>':'')+(c.type==='test'?' <span class="tag t-mut">prueba</span>':'')+(c.own&&debtFor(c.username)?' <span class="tag t-warn" title="Debe">debe '+money(debtFor(c.username))+'</span>':'')+'<div class="mut small">'+esc(c.tag||'')+(c.nota?' · '+esc(c.nota).slice(0,40):'')+'</div></div>'+
+       '<button class="kbtn" onclick="clientMenu(event,'+c.id+')" aria-label="Acciones"><i class="ti ti-dots-vertical"></i></button></div></td>'+
       (showR?'<td>'+(c.own?'<span class="mut">Yo</span>':esc(c.reseller||'?'))+'</td>':'')+
       '<td>'+diasTag(c.dias,c.status)+'<div class="mut small">'+fdate(c.exp)+'</div></td>'+
       '<td class="hide-m"'+(bad?' style="color:var(--bad);font-weight:700"':'')+'>'+(o?o.connection_count:0)+'/'+c.limit+'</td>'+
       '<td class="hide-m">'+(o?esc(o.connection_method):'<span class="mut">OFF</span>')+'</td>'+
       '<td class="hide-m mut">'+esc(c.wa||'—')+'</td>'+
       '<td class="acts"><button class="btn sm p" onclick="renewDlg('+c.id+')">Renovar</button>'+
-      (l?'<a class="btn sm wa" target="_blank" href="'+l+'">WA</a>':'')+
-      '<button class="btn sm" onclick="clientDlg('+c.id+')">Editar</button>'+
-      '<button class="btn sm" onclick="infoDlg('+c.id+')">Datos</button></td></tr>';
+      (l?'<a class="btn sm wa" target="_blank" href="'+l+'"><i class="ti ti-brand-whatsapp"></i>WA</a>':'')+'</td></tr>';
   }).join('');
 }
 /* ============ días <-> calendario ============ */
@@ -489,6 +499,64 @@ function linkDays(daysId,dateId,base){
   di.oninput();
 }
 function setDays(id,n){var e=$('#'+id);if(!e)return;e.value=n;if(e.oninput)e.oninput()}
+/* ============ MENÚ DE ACCIONES (3 puntos) ============ */
+var KBTN=null;
+function closeKMenu(){var m=$('#kmenu');if(m)m.style.display='none';if(KBTN){KBTN.classList.remove('on');KBTN=null}}
+function openKMenu(ev,title,items){
+  ev.stopPropagation();ev.preventDefault();
+  var btn=ev.currentTarget,m=$('#kmenu');
+  if(KBTN===btn&&m.style.display==='block'){closeKMenu();return}
+  closeKMenu();KBTN=btn;btn.classList.add('on');
+  m._items=items;
+  m.innerHTML='<div class="kh">'+esc(title)+'</div>'+items.map(function(it,i){
+    return it==='-'?'<hr>':'<button type="button" role="menuitem" class="'+(it.cls||'')+'" data-i="'+i+'"><i class="ti ti-'+it.icon+'"></i>'+esc(it.label)+'</button>'}).join('');
+  m.style.display='block';
+  var r=btn.getBoundingClientRect(),w=m.offsetWidth,h=m.offsetHeight;
+  var left=Math.min(window.innerWidth-w-8,r.right-w);if(left<8)left=8;
+  var top=r.bottom+4;if(top+h>window.innerHeight-8)top=Math.max(8,r.top-h-4);
+  m.style.left=left+'px';m.style.top=top+'px';
+}
+document.addEventListener('click',function(e){
+  var m=$('#kmenu');if(!m||m.style.display!=='block')return;
+  var b=e.target.closest('#kmenu button');
+  if(b){var it=m._items[+b.dataset.i];closeKMenu();if(it&&it.fn)it.fn();return}
+  if(!e.target.closest('#kmenu'))closeKMenu();
+});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeKMenu()});
+window.addEventListener('scroll',function(e){if(!e.target.closest||!e.target.closest('#kmenu'))closeKMenu()},true);
+window.addEventListener('resize',closeKMenu);
+
+function clientMenu(ev,id){
+  var c=byId(id);if(!c)return;
+  var l=waLink(c,c.dias<0?S.cfg.settings.plantillaVencido:S.cfg.settings.plantillaAviso);
+  var susp=c.status==='suspended';
+  var items=[
+    {icon:'eye',label:'Ver datos',fn:function(){infoDlg(id)}},
+    {icon:'refresh',label:'Renovar',fn:function(){renewDlg(id)}},
+    {icon:'edit',label:'Editar',fn:function(){clientDlg(id)}}];
+  if(l)items.push({icon:'brand-whatsapp',label:'Enviar WhatsApp',fn:function(){window.open(l,'_blank')}});
+  if(c.own)items.push({icon:'cash-banknote',label:'Anotar deuda',fn:function(){debtDlg(c.username)}});
+  items.push('-');
+  items.push(susp?{icon:'player-play',label:'Reactivar',cls:'ok',fn:function(){suspClient(id)}}
+                 :{icon:'player-pause',label:'Suspender',cls:'warn',fn:function(){suspClient(id)}});
+  items.push({icon:'trash',label:'Eliminar',cls:'bad',fn:function(){delClient(id)}});
+  openKMenu(ev,c.username+(c.own?'':' · de '+(c.reseller||'?')),items);
+}
+function resMenu(ev,id){
+  var r=resById(id);if(!r)return;
+  var activo=String(r.status||'').toLowerCase()==='active';
+  openKMenu(ev,r.name,[
+    {icon:'users',label:'Ver clientes',fn:function(){resOnline(id)}},
+    {icon:'list-details',label:'Resumen de clientes',fn:function(){resClients(id)}},
+    {icon:'refresh',label:'Renovar',fn:function(){resRenew(id)}},
+    {icon:'edit',label:'Editar',fn:function(){resDlg(id)}},
+    '-',
+    activo?{icon:'player-pause',label:'Suspender (con sus clientes)',cls:'warn',fn:function(){resToggle(id)}}
+          :{icon:'player-play',label:'Reactivar (con sus clientes)',cls:'ok',fn:function(){resToggle(id)}},
+    {icon:'trash',label:'Eliminar',cls:'bad',fn:function(){resDel(id)}}
+  ]);
+}
+
 function byId(id){for(var i=0;i<S.clients.length;i++)if(S.clients[i].id===id)return S.clients[i]}
 function ensureCats(){return S.cats?Promise.resolve(S.cats):call('getCategories').then(function(c){S.cats=c;return c})}
 
@@ -571,12 +639,13 @@ function vRevendedores(){
      list.map(function(r){
       var used=Number(r._used||0),max=Number(r.max_users||0),pct=max?Math.round(used/max*100):0;
       var st=(r.status||'').toLowerCase();
-      return '<tr><td><b>'+esc(r.name)+'</b> '+(st&&st!=='active'?'<span class="tag t-mut">'+esc(r.status)+'</span>':'')+'<div class="mut small">'+esc(r.username)+'</div></td>'+
+      return '<tr><td><div class="ucell"><div><b>'+esc(r.name)+'</b> '+(st&&st!=='active'?'<span class="tag t-bad">'+(st==='suspended'?'suspendido':esc(r.status))+'</span>':'')+'<div class="mut small">'+esc(r.username)+'</div></div>'+
+       '<button class="kbtn" onclick="resMenu(event,'+r.id+')" aria-label="Acciones"><i class="ti ti-dots-vertical"></i></button></div></td>'+
        '<td>'+used+'/'+max+' <span class="mut">('+pct+'%)</span><div class="prog" style="max-width:120px"><i style="width:'+Math.min(pct,100)+'%;background:'+(pct>=95?'var(--bad)':pct>=80?'var(--warn)':'var(--acc)')+'"></i></div></td>'+
        '<td><a href="#" onclick="resOnline('+r.id+');return false" style="color:var(--ok)">'+S.clients.filter(function(c){return !c.own&&c.reseller===r.name&&isOnline(c.username)}).length+' 🟢</a></td>'+
        '<td>'+(r.account_type==='credit'?'<span class="mut">créditos</span>':diasTag(r._dias,st==='suspended'?'suspended':''))+'<div class="mut small">'+fdate(r.expiration_date)+'</div></td>'+
        '<td class="hide-m mut">'+esc(r.account_type||'')+'</td>'+
-       '<td class="acts"><button class="btn sm p" onclick="resRenew('+r.id+')">Renovar</button><button class="btn sm" onclick="resClients('+r.id+')">Clientes</button><button class="btn sm" onclick="resDlg('+r.id+')">Editar</button></td></tr>';
+       '<td class="acts"><button class="btn sm p" onclick="resRenew('+r.id+')">Renovar</button><button class="btn sm" onclick="resClients('+r.id+')">Clientes</button></td></tr>';
      }).join('')+'</table></div>';
   }).catch(function(e){$('#rlist').innerHTML='Error: '+esc(e.message||e)});
 }
@@ -606,7 +675,9 @@ function resDlg(id){
     };
   }).catch(fail);
 }
-function resToggle(id){var r=resById(id);ask('¿Activar/desactivar a '+r.name+' y TODOS sus clientes?','Sí, cambiar').then(function(ok){if(!ok)return;call('toggleReseller',id,r.username).then(function(){closeModal();toast('Listo');vRevendedores()}).catch(fail)})}
+function resToggle(id){var r=resById(id);var act=String(r.status||'').toLowerCase()==='active';
+  ask(act?'¿Suspender a '+r.name+'? También se suspenden TODOS sus clientes y sub-revendedores hasta que lo reactives.':'¿Reactivar a '+r.name+'? También se reactivan sus clientes.',act?'Suspender':'Reactivar',act).then(function(ok){if(!ok)return;
+  call('toggleReseller',id,r.username).then(function(){closeModal();toast(act?'Revendedor suspendido':'Revendedor reactivado');vRevendedores()}).catch(fail)})}
 function resDel(id){var r=resById(id);ask('¿ELIMINAR a '+r.name+'? Se borran también TODOS sus clientes y sub-revendedores. No se puede deshacer.','Eliminar',true).then(function(ok){if(!ok)return;call('deleteReseller',id,r.username).then(function(){closeModal();toast('Eliminado');vRevendedores()}).catch(fail)})}
 function resClients(id){var r=resById(id);openModal('<h3>Clientes de '+esc(r.name)+'</h3><div id="rcl" class="mut">Cargando…</div><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button></div>');
   call('listResellerClients',id).then(function(l){$('#rcl').outerHTML='<div class="tablewrap" style="max-height:60vh;overflow:auto"><table>'+(l.map(function(c){return '<tr><td><span class="dot '+(isOnline(c.username)?'on':'')+'"></span> '+esc(c.username)+'</td><td>'+diasTag(c.dias,c.status)+'</td><td class="mut">'+fdate(c.exp)+'</td></tr>'}).join('')||'<tr><td class="mut">Sin clientes</td></tr>')+'</table></div>'}).catch(fail)}
