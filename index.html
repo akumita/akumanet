@@ -216,8 +216,18 @@ function vLogin(msg){
    '<div style="margin-top:16px"><button class="btn p full" id="lgo">Entrar</button></div></form>'+
    '<details style="margin-top:14px"><summary class="mut small" style="cursor:pointer">¿Dónde encuentro mi clave?</summary><ol class="mut small" style="padding-left:18px;margin:8px 0 0">'+
    '<li>Entrá a <b>servex.ws</b> con tu usuario de revendedor.</li><li>Tocá tu perfil (arriba a la derecha) → <b>Clave API</b>.</li><li>Si no tenés una, tocá <b>Generar nueva clave</b>.</li><li>Tocá el botón de copiar y pegala acá.</li></ol></details>');
-  $('#lf').onsubmit=function(e){e.preventDefault();busy($('.auth'),true);
-    rawCall('login',[$('#lk').value.trim()]).then(onLogged).catch(function(e){busy($('.auth'),false);fail(e)})};
+  $('#lf').onsubmit=function(e){e.preventDefault();busy($('.auth'),true);var key=$('#lk').value.trim();
+    rawCall('login',[key]).then(onLogged).catch(function(e){busy($('.auth'),false);
+      if(String(e&&e.message||e).indexOf('VINCULAR')>=0)return vLinkCode(key);fail(e)})};
+}
+/** Primer ingreso de un revendedor nuevo (sin clientes): se vincula con el código que le da el super admin. */
+function vLinkCode(key){
+  authScreen('<h2>Vincular tu cuenta</h2><p class="mut small">Tu clave es válida, pero es la primera vez que entrás. Pedile a tu proveedor el <b>código de vinculación</b> de 6 números y escribilo acá. Se pide una sola vez.</p>'+
+   '<form id="vf"><label>Código de vinculación</label><input id="vc" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123456" required style="font-size:22px;letter-spacing:6px;text-align:center">'+
+   '<div style="margin-top:16px"><button class="btn p full">Vincular y entrar</button></div></form>'+
+   '<p style="text-align:center;margin:12px 0 0"><a href="#" class="mut small" onclick="vLogin();return false">Volver</a></p>');
+  $('#vf').onsubmit=function(e){e.preventDefault();busy($('.auth'),true);
+    rawCall('login',[key,$('#vc').value]).then(onLogged).catch(function(e){busy($('.auth'),false);fail(e)})};
 }
 function vProfile(){
   var me=S.me;
@@ -693,16 +703,25 @@ function vAccesos(){
        '<td>'+est+(a.sessions?'<div class="mut small">'+a.sessions+' sesión(es) abierta(s)</div>':'')+'</td>'+
        '<td class="hide-m">'+(a.email?esc(a.email):'<span class="mut">—</span>')+'</td>'+
        '<td class="hide-m mut small">'+(a.lastLogin?fdt(a.lastLogin):'—')+'</td>'+
-       '<td class="hide-m">'+(a.servexKey?'<span class="tag t-ok">generada</span>':'<span class="tag t-warn">no generó</span>')+'</td>'+
-       '<td class="acts"><button class="btn sm '+(a.active?'d':'p')+'" onclick="accToggle('+a.resellerId+','+a.active+',\''+esc(a.name).replace(/&#39;/g,'')+'\')">'+(a.active?'Bloquear':'Permitir')+'</button>'+
+       '<td>'+(a.linked?'<span class="tag t-ok">vinculado</span>':'<span class="tag t-warn">sin vincular</span>')+'</td>'+
+       '<td class="acts">'+(a.linked?'':'<button class="btn sm p" onclick="accCode('+a.resellerId+')"><i class="ti ti-link"></i>Código</button>')+
+       '<button class="btn sm '+(a.active?'d':'p')+'" onclick="accToggle('+a.resellerId+','+a.active+',\''+esc(a.name).replace(/&#39;/g,'')+'\')">'+(a.active?'Bloquear':'Permitir')+'</button>'+
        (a.sessions?'<button class="btn sm" onclick="accLogout('+a.resellerId+')">Cerrar sesiones</button>':'')+'</td></tr>'}).join('');
-    var txt='Hola! Ya podés usar el Panel AkumaNet para manejar tus clientes 📲\n\nLink: '+S.cfg.panelUrl+'\n\nPara entrar usá tu CLAVE API de Servex:\n1) Entrá a servex.ws con tu usuario\n2) Tocá tu perfil (arriba a la derecha) → Clave API\n3) Si no tenés, tocá "Generar nueva clave"\n4) Copiala y pegala en el panel\n\nLa primera vez te pide tu correo para mandarte los avisos de vencimiento.';
-    m.innerHTML='<p class="mut">Tus revendedores y sub-revendedores entran al panel con <b>su propia clave API de Servex</b>: no hay usuarios ni contraseñas que administrar. Cada uno ve y maneja solo sus clientes, y Servex respeta sus cupos. Desde acá podés bloquear el ingreso de cualquiera.</p>'+
+    var txt='Hola! Ya podés usar el Panel AkumaNet para manejar tus clientes 📲\n\nLink: '+S.cfg.panelUrl+'\n\nPara entrar usá tu CLAVE API de Servex:\n1) Entrá a servex.ws con tu usuario\n2) Tocá tu perfil (arriba a la derecha) → Clave API\n3) Si no tenés, tocá "Generar nueva clave"\n4) Copiala y pegala en el panel\n\nSi te pide un código de vinculación, pedímelo. La primera vez también te pide tu correo para mandarte los avisos de vencimiento.';
+    m.innerHTML='<p class="mut">Tus revendedores y sub-revendedores entran al panel con <b>su propia clave API de Servex</b>. Si ya tienen clientes, el panel los reconoce solo. Si son nuevos (sin clientes), tocá <b>Código</b> y mandales el código de 6 números: lo usan una sola vez para vincular su clave.</p>'+
      '<div class="card" style="margin-bottom:12px"><b>Link del panel:</b><div class="cred" style="margin-top:6px;font-size:12px">'+esc(S.cfg.panelUrl)+'</div><div class="mfoot"><a class="btn wa" target="_blank" href="'+waText('',txt)+'">Mandar instrucciones por WhatsApp</a></div></div>'+
-     '<div class="tablewrap"><table><tr><th>Revendedor</th><th>Panel</th><th class="hide-m">Correo</th><th class="hide-m">Último ingreso</th><th class="hide-m">Clave API</th><th>Acciones</th></tr>'+rows+'</table></div>';
+     '<div class="tablewrap"><table><tr><th>Revendedor</th><th>Panel</th><th class="hide-m">Correo</th><th class="hide-m">Último ingreso</th><th>Clave</th><th>Acciones</th></tr>'+rows+'</table></div>';
   }).catch(function(e){m.innerHTML='<div class="card">Error: '+esc(e.message||e)+'</div>'});
 }
 function accToggle(id,act,name){ask((act?'¿Bloquear el ingreso al panel de ':'¿Permitir el ingreso al panel de ')+name+'? (No cambia nada en Servex.)',act?'Bloquear':'Permitir',act).then(function(ok){if(!ok)return;call('toggleAccess',id).then(function(){toast('Listo');vAccesos()}).catch(fail)})}
+function accCode(id){
+  call('linkCode',id).then(function(r){
+    var txt='Hola! Tu código para entrar al Panel AkumaNet es: '+r.code+'\n\n1) Entrá a '+S.cfg.panelUrl+'\n2) Pegá tu clave API de Servex\n3) Cuando te lo pida, escribí este código\n\nVale 48 horas y se usa una sola vez.';
+    openModal('<h3>Código para '+esc(r.name)+'</h3><p class="mut small">Vale 48 horas y sirve una sola vez. Si generás otro, este deja de valer.</p>'+
+     '<div class="cred" style="font-size:30px;letter-spacing:8px;text-align:center">'+esc(r.code)+'</div>'+
+     '<div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button><a class="btn wa" target="_blank" href="'+waText('',txt)+'"><i class="ti ti-brand-whatsapp"></i>Enviar por WhatsApp</a></div>');
+  }).catch(fail);
+}
 function accLogout(id){call('logoutAccess',id).then(function(){toast('Sesiones cerradas');vAccesos()}).catch(fail)}
 
 /* ============ AVISOS ============ */
