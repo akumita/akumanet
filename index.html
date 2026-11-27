@@ -647,6 +647,27 @@ function resMenu(ev,id){
   ]));
 }
 
+/* ============ tarifa de revendedores (precio por crédito según cupo) ============ */
+function tarifas(){try{var t=JSON.parse((S.cfg&&S.cfg.settings.tarifaRev)||'[]');return Array.isArray(t)?t:[]}catch(e){return []}}
+function precioCredito(n){n=Number(n)||0;var t=tarifas().slice().sort(function(a,b){return (a.hasta||1e9)-(b.hasta||1e9)});for(var i=0;i<t.length;i++)if(!t[i].hasta||n<=t[i].hasta)return Number(t[i].precio)||0;return 0}
+function cobroRev(n,dias){return Math.round((Number(n)||0)*precioCredito(n)*(Number(dias)||30)/30)}
+function tarifaHint(n,dias){var p=precioCredito(n);if(!p)return 'Configurá la tarifa en Ajustes';return n+' créditos × '+money(p)+(Number(dias)!==30?' × '+dias+'/30 días':'')}
+function tarifaEditor(){
+  var el=document.getElementById('tarEd');if(!el)return;var rows=tarifas();if(!rows.length)rows=[{hasta:0,precio:0}];
+  function sync(){var out=[].map.call(el.querySelectorAll('.tr'),function(r){return {hasta:Number(r.querySelector('.th').value)||0,precio:Number(r.querySelector('.tp').value)||0}}).filter(function(x){return x.precio>0});
+    out.sort(function(a,b){return (a.hasta||1e9)-(b.hasta||1e9)});document.getElementById('tarifaRev').value=JSON.stringify(out)}
+  function paint(){var prev=0;el.innerHTML=rows.map(function(r,i){var desde=prev+1;prev=r.hasta||prev;
+      return '<div class="tr" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span class="mut small" style="width:70px">desde '+desde+'</span>'+
+       '<label style="flex-direction:row;align-items:center;gap:6px;color:var(--txt)">hasta <input class="th" type="number" min="0" value="'+(r.hasta||'')+'" placeholder="∞" style="width:80px"></label>'+
+       '<label style="flex-direction:row;align-items:center;gap:6px;color:var(--txt)">$ <input class="tp" type="number" min="0" value="'+(r.precio||'')+'" style="width:100px"> c/u</label>'+
+       '<button type="button" class="btn sm d" data-del="'+i+'" aria-label="Quitar">✕</button></div>'}).join('')+
+     '<button type="button" class="btn sm" id="tarAdd">+ Agregar rango</button><p class="mut small" style="margin:6px 0 0">Dejá "hasta" vacío en el último rango para que sea "en adelante".</p>';
+    el.querySelectorAll('input').forEach(function(i){i.addEventListener('input',function(){rows=[].map.call(el.querySelectorAll('.tr'),function(r){return {hasta:Number(r.querySelector('.th').value)||0,precio:Number(r.querySelector('.tp').value)||0}});sync()})});
+    el.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){rows.splice(Number(b.dataset.del),1);paint();sync()}});
+    document.getElementById('tarAdd').onclick=function(){rows.push({hasta:0,precio:0});paint()};}
+  paint();sync();
+}
+
 /* ============ precio por conexión ============ */
 function isApp(){return /; wv\)/.test(navigator.userAgent)}
 function precioPara(conex,dias){var p=Number(S.cfg&&S.cfg.settings.precioMes)||0;return Math.round(p*(Number(conex)||1)*(Number(dias)||30)/30/100)*100}
@@ -744,8 +765,9 @@ function vRevendedores(){
     var totU=0,totM=0;list.forEach(function(r){totU+=Number(r._used||0);totM+=Number(r.max_users||0)});
     $('#rlist').outerHTML='<div class="grid" style="margin-bottom:14px"><div class="card kpi"><div class="l">Revendedores</div><div class="v">'+list.length+'</div></div>'+
      '<div class="card kpi"><div class="l">Usuarios asignados</div><div class="v">'+totU+'</div><div class="s">de '+totM+' cupos</div></div>'+
-     '<div class="card kpi warn"><div class="l">Vencen en 7 días</div><div class="v">'+list.filter(function(r){return r._dias>=0&&r._dias<=7}).length+'</div></div></div>'+
-     '<div class="tablewrap"><table><tr><th>Nombre</th><th>Uso</th><th>En línea</th><th>Vence</th><th class="hide-m">Tipo</th><th>Acciones</th></tr>'+
+     '<div class="card kpi warn"><div class="l">Vencen en 7 días</div><div class="v">'+list.filter(function(r){return r._dias>=0&&r._dias<=7}).length+'</div></div>'+
+     (isAdmin()?'<div class="card kpi ok"><div class="l"><i class="ti ti-cash"></i>A cobrar por renovaciones (30 días)</div><div class="v" style="font-size:24px">'+money(list.reduce(function(a,r){return a+cobroRev(r.max_users,30)},0))+'</div><div class="s">según la tarifa por cupo</div></div>':'')+'</div>'+
+     '<div class="tablewrap"><table><tr><th>Nombre</th><th>Uso</th><th>En línea</th><th>Vence</th>'+(isAdmin()?'<th>Renovación</th>':'')+'<th class="hide-m">Tipo</th><th>Acciones</th></tr>'+
      list.map(function(r){
       var used=Number(r._used||0),max=Number(r.max_users||0),pct=max?Math.round(used/max*100):0;
       var st=(r.status||'').toLowerCase();
@@ -754,15 +776,17 @@ function vRevendedores(){
        '<td>'+used+'/'+max+' <span class="mut">('+pct+'%)</span><div class="prog" style="max-width:120px"><i style="width:'+Math.min(pct,100)+'%;background:'+(pct>=95?'var(--bad)':pct>=80?'var(--warn)':'var(--acc)')+'"></i></div></td>'+
        '<td><a href="#" onclick="resOnline('+r.id+');return false" style="color:var(--ok)">'+S.clients.filter(function(c){return !c.own&&c.reseller===r.name&&isOnline(c.username)}).length+' 🟢</a></td>'+
        '<td>'+(r.account_type==='credit'?'<span class="mut">créditos</span>':diasTag(r._dias,st==='suspended'?'suspended':''))+'<div class="mut small">'+fdate(r.expiration_date)+'</div></td>'+
-       '<td class="hide-m mut">'+esc(r.account_type||'')+'</td>'+
+       (isAdmin()?'<td><b>'+money(cobroRev(max,30))+'</b><div class="mut small">'+max+' × '+money(precioCredito(max))+'</div></td>':'')+
+       '<td class="hide-m mut">'+esc(r.account_type||'')+'</td>'
        '<td class="acts"><button class="btn sm p" onclick="resRenew('+r.id+')">Renovar</button><button class="btn sm" onclick="resClients('+r.id+')">Clientes</button></td></tr>';
      }).join('')+'</table></div>';
   }).catch(function(e){$('#rlist').innerHTML='Error: '+esc(e.message||e)});
 }
 function resOnline(id){var r=resById(id);S.scope='rev';S.reseller=r.name;S.filter='todos';go('clientes')}
 function resById(id){for(var i=0;i<S.resellers.length;i++)if(S.resellers[i].id===id)return S.resellers[i]}
-function resRenew(id){var r=resById(id);
-  openModal('<h3>Renovar revendedor '+esc(r.name)+'</h3><p class="mut">Vence: '+fdate(r.expiration_date)+'</p><div class="f"><label>Días<select id="rrd"><option>30</option><option>15</option><option>60</option><option>90</option></select></label><label><span id="rrlab">Cobrado ($)</span><input id="rrm" type="number" value="0"></label>'+payToggle('rrpay','rrlab')+'</div><div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="rrgo">Renovar</button></div>');
+function resRenew(id){var r=resById(id),A=isAdmin(),cupo=Number(r.max_users)||0;
+  openModal('<h3>Renovar revendedor '+esc(r.name)+'</h3><p class="mut">Vence: '+fdate(r.expiration_date)+' · cupo '+cupo+'</p><div class="f"><label>Días<select id="rrd"><option>30</option><option>15</option><option>60</option><option>90</option></select></label><label><span id="rrlab">Cobrado ($)</span><input id="rrm" type="number" value="'+(A?cobroRev(cupo,30):0)+'">'+(A?'<span class="mut small" id="rrhint">'+tarifaHint(cupo,30)+'</span>':'')+'</label>'+payToggle('rrpay','rrlab')+'</div><div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="rrgo">Renovar</button></div>');
+  if(A){var mm=$('#rrm');mm.addEventListener('input',function(){mm._manual=true});$('#rrd').onchange=function(){if(mm._manual)return;var d=Number(this.value)||30;mm.value=cobroRev(cupo,d);setTxt('rrhint',tarifaHint(cupo,d))}}
   $('#rrgo').onclick=function(){busy($('#modal'),true);call('renewReseller',id,r.username,$('#rrd').value,$('#rrm').value,isDebe('rrpay'),r.name).then(function(){if(isDebe('rrpay'))loadDebts();closeModal();toast('Revendedor renovado ✅');vRevendedores()}).catch(fail).then(function(){busy($('#modal'),false)})};
 }
 function resDlg(id){
@@ -989,10 +1013,12 @@ function cupoDlg(id){var r=resById(id);
    '<input id="cupo" type="number" min="0" value="'+r.max_users+'" style="width:90px;text-align:center;font-size:20px;font-weight:700">'+
    '<button class="btn" onclick="cupoAdd(1)">+1</button><button class="btn" onclick="cupoAdd(5)">+5</button></div>'+
    '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="cgo">Guardar</button></div>');
+  if(isAdmin()){var hint=document.createElement('p');hint.className='mut small';hint.id='cupoHint';hint.style.textAlign='center';$('#cupo').closest('.bar').after(hint);
+    var upd=function(){var v=Number($('#cupo').value)||0;hint.textContent='Renovación mensual: '+money(cobroRev(v,30))+' ('+v+' × '+money(precioCredito(v))+')'};$('#cupo').addEventListener('input',upd);upd();window._cupoUpd=upd}
   $('#cgo').onclick=function(){var v=Number($('#cupo').value);if(!(v>=0))return toast('Cupo inválido',true);if(v<r._used)return toast('No puede ser menor a lo que ya usa ('+r._used+')',true);
     busy($('#modal'),true);call('updateReseller',id,{max_users:v,username:r.username}).then(function(){closeModal();toast('Cupo actualizado');vRevendedores()}).catch(fail).then(function(){busy($('#modal'),false)})};
 }
-function cupoAdd(n){var e=$('#cupo');e.value=Math.max(0,(Number(e.value)||0)+n)}
+function cupoAdd(n){var e=$('#cupo');e.value=Math.max(0,(Number(e.value)||0)+n);if(window._cupoUpd)window._cupoUpd()}
 function viewAs(id){var r=resById(id);
   ask('¿Ver el panel tal como lo ve '+r.name+'? Vas a entrar con su cuenta (sus clientes, su cupo). Para volver tocá "Volver a mi panel" arriba.','Ver como '+r.name).then(function(ok){if(!ok)return;
     call('impersonate',id).then(function(res){S.adminToken=S.token;store('pa_admin_token',S.token);resetState();S.token=res.token;S.me=res.me;store('pa_token',res.token);boot()}).catch(fail)})}
@@ -1199,7 +1225,8 @@ function vAjustes(){
    '<label>Precio mensual por conexión ($)<input name="precioMes" type="number" value="'+esc(s.precioMes)+'"></label>'+
    (A?'<label>Límite de conexiones de tu cuenta<input name="limiteCuenta" type="number" value="'+esc(s.limiteCuenta)+'"></label>'+
      '<label>Control: máx. conexiones por cliente de revendedor<input name="maxConexRev" type="number" min="1" value="'+esc(s.maxConexRev)+'"></label>'+
-     '<label>Control: máx. días de vencimiento para revendedores<input name="maxDiasRev" type="number" min="1" value="'+esc(s.maxDiasRev)+'"></label>':'')+
+     '<label>Control: máx. días de vencimiento para revendedores<input name="maxDiasRev" type="number" min="1" value="'+esc(s.maxDiasRev)+'"></label>'+
+     '<input type="hidden" name="tarifaRev" id="tarifaRev" value="'+esc(s.tarifaRev||'')+'"><div class="full"><label style="margin-bottom:6px">Tarifa para revendedores (precio por crédito según su cupo)</label><div id="tarEd"></div></div>':'')+
    '<label>Avisar con cuántos días de anticipación<input name="diasAviso" type="number" min="0" max="15" value="'+esc(s.diasAviso)+'"></label>'+
    '<label class="full">Mensaje de aviso (antes de vencer)<textarea name="plantillaAviso">'+esc(s.plantillaAviso)+'</textarea></label>'+
    '<label class="full">Mensaje para vencidos<textarea name="plantillaVencido">'+esc(s.plantillaVencido)+'</textarea></label>'+
@@ -1212,6 +1239,7 @@ function vAjustes(){
      '<button class="btn '+(c.triggerOn?'':'p')+'" id="tgl">'+(c.triggerOn?'Desactivar envío diario':'Activar envío diario')+'</button></div>':'');
   if(A)$('#ksave').onclick=function(){var k=$('#key').value.trim();if(!k)return;busy($('#main'),true);
     call('saveApiKey',k).then(function(){return call('getConfig')}).then(function(cfg){S.cfg=cfg;S.me=cfg.me;toast('Clave guardada y verificada ✅');startWs();loadClients();if(isAdmin())loadResellers();go('inicio')}).catch(fail).then(function(){busy($('#main'),false)})};
+  tarifaEditor();
   $('#ssave').onclick=function(){call('saveSettings',Object.fromEntries(new FormData($('#sf')).entries())).then(function(cfg){S.cfg=cfg;toast('Ajustes guardados')}).catch(fail)};
   $('#emsave').onclick=function(){call('saveSettings',{email:$('#em').value}).then(function(cfg){S.cfg=cfg;S.me=cfg.me;toast('Correo guardado')}).catch(fail)};
   $('#tmail').onclick=function(){busy($('#main'),true);call('sendTestEmail').then(function(to){toast('Mail enviado a '+to)}).catch(fail).then(function(){busy($('#main'),false)})};
