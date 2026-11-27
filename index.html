@@ -317,7 +317,7 @@ function boot(){
   call('getConfig').then(function(cfg){
     S.cfg=cfg;S.me=cfg.me;
     if(S.me.needsProfile)return vProfile();
-    shell();impBanner();S.view='inicio';render();startWs();loadNotices(!adminTok());loadNotes();
+    shell();impBanner();S.view='inicio';render();checkCupoHash();startWs();loadNotices(!adminTok());loadNotes();
     if(cfg.hasKey){loadClients();loadDebts();loadResellers()}
   }).catch(function(e){if(S.token)vLogin(e.message||String(e))});
 }
@@ -363,41 +363,35 @@ function vInicio(){
   if(!S.clients.length)loadClients();
 }
 
-/* ---- cupo real desde Servex ---- */
-function limitStamp(){var sl=S.cfg&&S.cfg.servexLogin;if(!sl)return 'Cupo cargado a mano · tocá ↻ para sincronizar';
-  if(!sl.lastSync)return 'Sincronizado con Servex';var m=Math.round((Date.now()-new Date(sl.lastSync))/60000);
-  return 'Sincronizado '+(m<1?'recién':m<60?'hace '+m+' min':m<1440?'hace '+Math.round(m/60)+' h':'el '+fdt(sl.lastSync))}
+/* ---- cupo total de la cuenta (Servex no lo informa por API y su login tiene captcha) ---- */
+var BOOKMARKLET="javascript:(async()=>{try{if(location.hostname!=='servex.ws'){alert('Abri servex.ws con tu sesion iniciada y toca este favorito ahi.');return}var s=await fetch('/api/dashboard/stats').then(r=>r.json());if(s.maxUsers==null){alert('No pude leer el cupo. Inicia sesion en Servex.');return}window.open('https://akumita.github.io/akumanet/#cupo='+s.maxUsers+'&usadas='+s.usedConnections,'_blank')}catch(e){alert('Error: '+e)}})()";
+function limitStamp(){var ls=S.cfg&&S.cfg.limitSync;if(!ls)return 'Cupo cargado a mano · tocá ↻ para actualizar';
+  var m=Math.round((Date.now()-new Date(ls))/60000);return 'Actualizado '+(m<1?'recién':m<60?'hace '+m+' min':m<1440?'hace '+Math.round(m/60)+' h':'el '+fdate(ls))}
 function syncLimit(){
-  var ic=document.getElementById('syncIc');if(ic)ic.className='ti ti-loader-2';
-  if(!isAdmin()){ // revendedor: su cupo ya se lee en vivo de Servex; se recarga todo
-    Promise.all([loadClients()]).then(function(){toast('Datos actualizados desde Servex');vInicio()});return}
-  call('syncLimit').then(function(r){return call('getConfig').then(function(cfg){S.cfg=cfg;
-    toast(r.antes!=null&&r.antes!==r.maxUsers?'Cupo actualizado: '+r.antes+' → '+r.maxUsers:'Cupo al día: '+r.maxUsers);loadClients();vInicio()})})
-  .catch(function(e){if(ic)ic.className='ti ti-refresh';if(String(e&&e.message||e).indexOf('NOLOGIN')>=0)return servexLoginDlg();fail(e)});
+  if(!isAdmin()){var ic=document.getElementById('syncIc');if(ic)ic.className='ti ti-loader-2';loadClients().then(function(){toast('Datos actualizados desde Servex');vInicio()});return}
+  var st=S.cfg.settings;limitDlg(null,Number(st.limiteCuenta)||0);
 }
-function servexLoginDlg(){
-  openModal('<h3><i class="ti ti-plug-connected"></i> Conectar tu cuenta de Servex</h3>'+
-   '<p class="mut small">La clave API no puede leer tu cupo total, pero tu sesión de Servex sí. Si cargás tu <b>usuario y contraseña de Servex</b>, el panel inicia sesión por detrás <b>solo para leer tu cupo</b>: con el botón ↻ y cada mañana automáticamente.</p>'+
-   '<p class="mut small">Se guardan en el servidor privado del panel (tu Apps Script), nunca en el navegador ni en GitHub. Podés quitarlos cuando quieras desde Ajustes.</p>'+
-   '<form id="sxf" class="f"><label>Usuario de Servex<input id="sxu" autocomplete="username" autocapitalize="none" required></label>'+
-   '<label>Contraseña de Servex<input id="sxp" type="password" autocomplete="current-password" required></label></form>'+
-   '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="sxgo">Conectar y sincronizar</button></div>');
-  $('#sxgo').onclick=function(){var u=$('#sxu').value.trim(),pw=$('#sxp').value;if(!u||!pw)return toast('Completá usuario y contraseña',true);busy($('#modal'),true);
-    call('saveServexLogin',u,pw).then(function(r){return call('getConfig').then(function(cfg){S.cfg=cfg;closeModal();toast('Conectado ✅ Cupo total: '+r.maxUsers);if(S.view==='inicio')vInicio();if(S.view==='ajustes')vAjustes()})})
-    .catch(fail).then(function(){busy($('#modal'),false)})};
+/** Si se abrió el panel desde el favorito de Servex (#cupo=N), guarda el cupo total. */
+function checkCupoHash(){
+  var m=String(location.hash||'').match(/cupo=(\d+)/);if(!m)return;
+  try{history.replaceState(null,'',location.pathname+location.search)}catch(e){location.hash=''}
+  if(!isAdmin())return;
+  var v=Number(m[1]),antes=Number(S.cfg.settings.limiteCuenta)||0;
+  call('saveSettings',{limiteCuenta:String(v)}).then(function(cfg){S.cfg=cfg;toast(antes!==v?'Cupo actualizado desde Servex: '+antes+' → '+v:'Cupo al día: '+v);if(S.view==='inicio')vInicio()}).catch(fail);
 }
-function servexLogout(){ask('¿Quitar tu usuario y contraseña de Servex del panel? El cupo total vuelve a cargarse a mano.','Quitar',true).then(function(ok){if(!ok)return;
-  call('clearServexLogin').then(function(){return call('getConfig')}).then(function(cfg){S.cfg=cfg;toast('Listo, se quitaron');vAjustes()}).catch(fail)})}
-
-/** Super admin: actualizar el cupo total de su cuenta de Servex a mano. */
+/** Super admin: actualizar el cupo total de su cuenta (favorito desde Servex o a mano). */
 function limitDlg(used,cur){
-  openModal('<h3><i class="ti ti-plug-connected"></i> Tu cupo total en Servex</h3><p class="mut small">Servex no le informa este número al panel, así que se carga a mano. Cuando te sumen cupos/créditos, actualizalo acá. Lo ves en servex.ws → Panel de Control → <b>Uso de Conexiones</b> (\"de X conexiones\").</p>'+
-   '<div class="f"><label>Cupo total<input id="lim" type="number" min="0" value="'+(cur||'')+'" style="font-size:20px;font-weight:700"></label><label>Usás ahora<input value="'+used+'" disabled></label></div>'+
-   '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="limgo">Guardar</button></div>');
+  openModal('<h3><i class="ti ti-plug-connected"></i> Tu cupo total en Servex</h3>'+
+   '<p class="mut small">Servex no le informa este número al panel y su inicio de sesión tiene captcha, así que no se puede leer solo. Tenés dos formas de actualizarlo:</p>'+
+   '<div class="card" style="margin-bottom:10px"><b>1 · Con un clic desde Servex (en la PC)</b><p class="mut small" style="margin:6px 0">Arrastrá este botón a tu barra de favoritos (una sola vez). Después, cuando te sumen cupos, entrá a <b>servex.ws</b> y tocá el favorito: abre el panel con el cupo ya actualizado.</p>'+
+   '<a class="btn p" href="'+BOOKMARKLET.replace(/"/g,'&quot;')+'" onclick="toast(\'Arrastralo a la barra de favoritos, no lo toques acá\',true);return false" style="cursor:grab"><i class="ti ti-bookmark"></i>Actualizar cupo AkumaNet</a></div>'+
+   '<div class="card"><b>2 · A mano</b><p class="mut small" style="margin:6px 0">Lo ves en servex.ws → Panel de Control → <b>Uso de Conexiones</b> ("de X conexiones").</p>'+
+   '<div class="f"><label>Cupo total<input id="lim" type="number" min="0" value="'+(cur||'')+'" style="font-size:20px;font-weight:700"></label>'+(used!=null?'<label>Usás ahora<input value="'+used+'" disabled></label>':'')+'</div>'+
+   '<div class="mfoot"><a class="btn" href="https://servex.ws/dashboard" target="_blank"><i class="ti ti-external-link"></i>Abrir Servex</a><button class="btn p" id="limgo">Guardar</button></div></div>'+
+   '<div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button></div>');
   $('#limgo').onclick=function(){var v=Number($('#lim').value);if(!(v>0))return toast('Poné el cupo total',true);
     call('saveSettings',{limiteCuenta:String(v)}).then(function(cfg){S.cfg=cfg;closeModal();toast('Cupo total actualizado: '+v);if(S.view==='inicio')vInicio()}).catch(fail)};
 }
-
 /* ============ KPIs en vivo ============ */
 function refreshKpis(){
   var on=S.online,tot=Object.keys(on).length,mine=0,rev=0;
@@ -1198,8 +1192,7 @@ function vAjustes(){
    '<p class="mut small">Entrás con tu clave API de Servex. Si la regenerás en Servex, la próxima vez entrá con la nueva.</p>'+
    '<div class="mfoot"><button class="btn" id="tmail">Mandarme un mail de prueba</button><button class="btn p" id="emsave">Guardar correo</button></div></div>'+
    (A?'<div class="card" style="margin-top:12px"><h3 style="margin-top:0"><i class="ti ti-plug-connected"></i> Cupo de tu cuenta en Servex</h3>'+
-     (c.servexLogin?'<p>Conectado como <b>'+esc(c.servexLogin.user)+'</b> · '+limitStamp()+'</p><p class="mut small">El cupo total se actualiza solo cada mañana y con el botón ↻ en Inicio.</p><div class="mfoot"><button class="btn d" onclick="servexLogout()">Quitar acceso</button><button class="btn p" onclick="syncLimit()"><i class="ti ti-refresh"></i>Sincronizar ahora</button></div>'
-      :'<p class="mut small">Hoy tu cupo total ('+esc(s.limiteCuenta)+') se carga a mano. Conectá tu cuenta de Servex para que se actualice solo.</p><div class="mfoot"><button class="btn p" onclick="servexLoginDlg()">Conectar mi cuenta de Servex</button></div>')+'</div>':'')+
+     '<p>Cupo total: <b>'+esc(s.limiteCuenta)+'</b> · '+limitStamp()+'</p><p class="mut small">Servex no informa este dato al panel. Actualizalo con el favorito "Actualizar cupo AkumaNet" desde servex.ws, o a mano.</p><div class="mfoot"><button class="btn p" onclick="syncLimit()"><i class="ti ti-refresh"></i>Actualizar cupo</button></div></div>':'')+
    (A?'<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Clave API del super admin</h3><p><span class="tag t-ok">Configurada ✓</span></p><p class="mut small">Solo cambiala si regeneraste tu clave en Servex.</p>'+
    '<div class="bar"><input id="key" type="password" placeholder="sx_..." style="flex:1;min-width:200px"><button class="btn p" id="ksave">Cambiar clave</button></div></div>':'')+
    '<div class="card" style="margin-top:12px"><h3 style="margin-top:0">Cobros y avisos</h3><form id="sf" class="f">'+
