@@ -347,7 +347,7 @@ function vInicio(){
       '<div class="card kpi click" onclick="goClients(\'mios\')"><div class="l"><i class="ti ti-users"></i>Mis clientes</div><div class="v">'+s.totalClients+'</div><div class="s" id="kMineOn"></div></div>'+
       (A?'<div class="card kpi click" onclick="goClients(\'rev\')"><div class="l"><i class="ti ti-building-store"></i>Clientes de revendedores</div><div class="v" id="kRev">…</div><div class="s" id="kRevSub"></div></div>'+
          '<div class="card kpi bad click" onclick="go(\'control\')"><div class="l"><i class="ti ti-shield-exclamation"></i>Alertas de control</div><div class="v" id="kAlert">…</div><div class="s">tocá para revisar</div></div>':'')+
-      (s.maxUsers?'<div class="card kpi"><div class="l"><i class="ti ti-plug-connected"></i>'+(A?'Conexiones':'Cupo usado')+'</div><div class="v">'+s.usedConnections+'</div><div class="s">de '+s.maxUsers+' ('+pct+'%)</div><div class="prog"><i style="width:'+Math.min(pct,100)+'%"></i></div></div>':'')+
+      (s.maxUsers||A?'<div class="card kpi'+(A?' click" onclick="limitDlg('+s.usedConnections+','+(s.maxUsers||0)+')" title="Tocá para actualizar tu cupo total':'')+'"><div class="l"><i class="ti ti-plug-connected"></i>'+(A?'Conexiones':'Cupo usado')+(A?' <i class="ti ti-pencil" style="margin-left:auto;font-size:14px"></i>':'')+'</div><div class="v">'+s.usedConnections+'</div><div class="s">de '+(s.maxUsers||'?')+' ('+pct+'%)'+(pct>=90?' <b style="color:var(--bad)">casi lleno</b>':'')+'</div><div class="prog"><i style="width:'+Math.min(pct,100)+'%;'+(pct>=90?'background:var(--bad)':'')+'"></i></div></div>':'')+
       '<div class="card kpi bad click" onclick="goClients(\'mios\',\'vencidos\')"><div class="l"><i class="ti ti-alert-circle"></i>Vencidos</div><div class="v">'+s.expiredClients+'</div></div>'+
       '<div class="card kpi warn click" onclick="goClients(\'mios\',\'hoy\')"><div class="l"><i class="ti ti-calendar-exclamation"></i>Vencen hoy</div><div class="v">'+s.expiringToday+'</div></div>'+
       '<div class="card kpi warn click" onclick="goClients(\'mios\',\'pronto\')"><div class="l"><i class="ti ti-calendar-time"></i>Vencen pronto (5d)</div><div class="v">'+s.expiringSoon+'</div></div>'+
@@ -359,6 +359,15 @@ function vInicio(){
     refreshKpis();
   }).catch(function(e){m.innerHTML='<div class="card">Error: '+esc(e.message||e)+'</div>'});
   if(!S.clients.length)loadClients();
+}
+
+/** Super admin: actualizar el cupo total de su cuenta de Servex (la API no lo informa, se carga a mano). */
+function limitDlg(used,cur){
+  openModal('<h3><i class="ti ti-plug-connected"></i> Tu cupo total en Servex</h3><p class="mut small">Servex no le informa este número al panel, así que se carga a mano. Cuando te sumen cupos/créditos, actualizalo acá. Lo ves en servex.ws → Panel de Control → <b>Uso de Conexiones</b> (\"de X conexiones\").</p>'+
+   '<div class="f"><label>Cupo total<input id="lim" type="number" min="0" value="'+(cur||'')+'" style="font-size:20px;font-weight:700"></label><label>Usás ahora<input value="'+used+'" disabled></label></div>'+
+   '<div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="limgo">Guardar</button></div>');
+  $('#limgo').onclick=function(){var v=Number($('#lim').value);if(!(v>0))return toast('Poné el cupo total',true);
+    call('saveSettings',{limiteCuenta:String(v)}).then(function(cfg){S.cfg=cfg;closeModal();toast('Cupo total actualizado: '+v);if(S.view==='inicio')vInicio()}).catch(fail)};
 }
 
 /* ============ KPIs en vivo ============ */
