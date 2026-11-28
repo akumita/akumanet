@@ -318,7 +318,7 @@ function boot(){
     S.cfg=cfg;S.me=cfg.me;
     if(S.me.needsProfile)return vProfile();
     shell();impBanner();S.view='inicio';render();checkCupoHash();startWs();loadNotices(!adminTok());loadNotes();
-    if(cfg.hasKey){loadClients();loadDebts();loadResellers()}
+    if(cfg.hasKey){loadClients();loadDebts();loadResellers();excessStart()}
   }).catch(function(e){if(S.token)vLogin(e.message||String(e))});
 }
 
@@ -416,7 +416,7 @@ function getAlerts(){
     if(!c.own&&c.limit>mx)out.push({sev:'warn',tipo:'Cliente de revendedor con más conexiones de lo permitido',c:c,det:c.limit+' conexiones (máx. '+mx+')'});
     if(!c.own&&c.type==='user'&&c.dias>md)out.push({sev:'warn',tipo:'Vencimiento demasiado largo (más de '+md+' días)',c:c,det:'vence en '+c.dias+' días ('+fdate(c.exp)+')'});
     if(c.type==='test'&&c.status!=='suspended'&&(new Date(c.exp)-Date.now())>26*36e5)out.push({sev:'warn',tipo:'Prueba con más de 1 día',c:c,det:'vence '+fdt(c.exp)});
-    if(o&&o.connection_count>c.limit)out.push({sev:'bad',tipo:'Usando más conexiones que su límite',c:c,det:o.connection_count+' conectadas / límite '+c.limit});
+    if(o&&o.connection_count>c.limit)out.push({sev:'bad',tipo:'Usando más conexiones que su límite',c:c,det:o.connection_count+' conectadas / límite '+c.limit+excessTxt(c.username)});
     if(o&&(c.dias<0||c.status==='suspended'))out.push({sev:'bad',tipo:'Conectado estando vencido o suspendido',c:c,det:c.status==='suspended'?'suspendido':'vencido hace '+(-c.dias)+' días'});
   });
   var seen={};S.clients.forEach(function(c){(seen[c.username]=seen[c.username]||[]).push(c)});
@@ -446,8 +446,37 @@ function vControl(){
    '<div class="bar"><button class="btn" onclick="Promise.all([loadClients(),loadResellers()]).then(function(){vControl();toast(\'Actualizado\')})">↻ Actualizar</button></div>'+
    (keys.map(function(k){var g=grp[k];
      return '<h2><span class="tag '+(g.sev==='bad'?'t-bad':'t-warn')+'">'+g.items.length+'</span> '+esc(k)+'</h2><div class="card tablewrap"><table>'+alertRows(g.items)+'</table></div>';
-   }).join('')||'<div class="card">Todo en orden ✅ No hay alertas.</div>');
+   }).join('')||'<div class="card">Todo en orden ✅ No hay alertas.</div>')+excessSection();
 }
+/* ============ CONEXIONES EXCEDIDAS (se informa cada 5 min; el servidor lleva el tiempo y suspende) ============ */
+var exT=null;
+function excessStart(){clearInterval(exT);setTimeout(excessTick,90000);exT=setInterval(excessTick,5*60000)}
+function excessList(){var seen={},out=[];
+  S.clients.forEach(function(c){var o=isOnline(c.username);if(!o||c.status==='suspended'||seen[c.username])return;
+    if(Number(o.connection_count)>Number(c.limit)){seen[c.username]=1;out.push({id:c.id,username:c.username,count:o.connection_count,limit:c.limit,status:c.status,own:!!c.own,reseller:c.reseller||''})}});
+  return out}
+function excessTick(){
+  if(!S.token||!S.cfg||!S.cfg.hasKey||!S.clients.length||!WS||WS.readyState!==1)return;
+  // estados frescos: el "suspender" de Servex alterna, no hay que informar a alguien que ya está suspendido
+  if(Date.now()-(S._clAt||0)>4*60000)return loadClients().then(function(){S._clAt=Date.now();excessTick()});
+  var list=excessList();if(!list.length&&!isAdmin()&&!(S.excess&&Object.keys(S.excess.track||{}).length))return;
+  call('reportExcess',list).then(function(r){S.excess=r;
+    var seen=Number(store('pa_exseen'))||(Date.now()-2*36e5),nuevos=(r.log||[]).filter(function(d){return Date.parse(d.fecha)>seen});
+    if(nuevos.length){store('pa_exseen',String(Date.now()));excessPopup(nuevos);loadClients()}
+    if(S.view==='control')vControl()}).catch(function(e){console.warn('exceso',e)})}
+function excessTxt(u){var x=S.excess,e=x&&x.track&&x.track[String(u).toLowerCase()];if(!e||e.done)return '';
+  var min=Math.max(0,Math.round((x.now-e.first)/60000));
+  return ' · excedido hace '+min+' min'+(x.auto?' (se suspende a los '+x.mins+')':'')+(e.err?' · no se pudo suspender: '+e.err:'')}
+function excessMsg(d){return d.count+' conexiones con límite de '+d.limit+' durante '+d.minutos+' min'}
+function excessPopup(list){
+  openModal('<h3><i class="ti ti-plug-connected-x" style="color:var(--bad)"></i> Suspendido por exceso de conexiones</h3>'+
+   list.map(function(d){return '<div class="card" style="margin:8px 0"><b>'+esc(d.user)+'</b>'+(d.owner&&d.owner!=='admin'&&isAdmin()?' <span class="mut">(de '+esc(d.owner)+')</span>':'')+'<div class="mut small">'+esc(excessMsg(d))+' · '+fdt(d.fecha)+'</div></div>'}).join('')+
+   '<p class="mut small">Solo se suspendió a ese cliente. Lo podés reactivar desde Control o Clientes.</p><div class="mfoot"><button class="btn p" onclick="closeModal()">Entendido</button></div>')}
+function excessSection(){var l=(S.excess&&S.excess.log)||[];if(!l.length)return '';
+  return '<h2><span class="tag t-bad">'+l.length+'</span> Suspendidos automáticamente por exceso de conexiones</h2><div class="card tablewrap"><table>'+
+   l.map(function(d){var c=byId(d.id);return '<tr><td><b>'+esc(d.user)+'</b><div class="mut small">'+(d.owner==='admin'?'mío':'de '+esc(d.owner||'?'))+'</div></td><td>'+esc(excessMsg(d))+'<div class="mut small">'+fdt(d.fecha)+'</div></td>'+
+    '<td class="acts">'+(c&&c.status==='suspended'?'<button class="btn sm" onclick="suspClient('+c.id+')">Reactivar</button>':'<span class="mut small">'+(c?'activo':'')+'</span>')+'</td></tr>'}).join('')+'</table></div>'}
+
 function loadResellers(){return call('listResellers').then(function(l){S.resellers=l;refreshKpis();return l}).catch(function(e){console.warn(e)})}
 
 /* ============ REPORTE POR REVENDEDOR (super admin) ============ */
@@ -491,7 +520,7 @@ function repDetail(i){
 
 /* ============ CLIENTES ============ */
 function loadClients(){
-  return call('listClients').then(function(list){S.clients=list;wsFilter();refreshKpis();if(S.view==='clientes')drawClients();return list}).catch(fail);
+  return call('listClients').then(function(list){S.clients=list;S._clAt=Date.now();wsFilter();refreshKpis();if(S.view==='clientes')drawClients();return list}).catch(fail);
 }
 function resellerNames(){var n={};S.clients.forEach(function(c){if(!c.own&&c.reseller)n[c.reseller]=(n[c.reseller]||0)+1});return Object.keys(n).sort().map(function(k){return [k,n[k]]})}
 function vClientes(){
@@ -1025,7 +1054,7 @@ function viewAs(id){var r=resById(id);
     call('impersonate',id).then(function(res){S.adminToken=S.token;store('pa_admin_token',S.token);resetState();S.token=res.token;S.me=res.me;store('pa_token',res.token);boot()}).catch(fail)})}
 function adminTok(){return S.adminToken||store('pa_admin_token')}
 function backToAdmin(){var t=S.token,a=adminTok();S.adminToken=null;rawCall('logout',[t]).catch(function(){});store('pa_admin_token',null);resetState();S.token=a;store('pa_token',a);boot()}
-function resetState(){var ib=document.querySelector('.impbar');if(ib)ib.remove();stopWs();S.clients=[];S.online={};S.servers={};S.resellers=[];S.debts=[];S.notices=null;S.cats=null;S.sel={};S.notes=null;S.view='inicio'}
+function resetState(){var ib=document.querySelector('.impbar');if(ib)ib.remove();stopWs();S.clients=[];S.online={};S.servers={};S.resellers=[];S.debts=[];S.notices=null;S.cats=null;S.sel={};S.notes=null;S.excess=null;S.view='inicio'}
 function impBanner(){var old=document.querySelector('.impbar');if(old)old.remove();if(!adminTok()||isAdmin())return;var b=document.createElement('div');b.className='impbar';
   b.innerHTML='<i class="ti ti-eye"></i><span>Estás viendo el panel como <b>'+esc(S.me.name)+'</b></span><span style="flex:1"></span><button class="btn sm" onclick="backToAdmin()">Volver a mi panel</button>';
   document.body.insertBefore(b,document.body.firstChild)}
@@ -1226,6 +1255,8 @@ function vAjustes(){
    '<label>Precio mensual por conexión ($)<input name="precioMes" type="number" value="'+esc(s.precioMes)+'"></label>'+
    (A?'<label>Límite de conexiones de tu cuenta<input name="limiteCuenta" type="number" value="'+esc(s.limiteCuenta)+'"></label>'+
      '<label>Control: máx. conexiones por cliente de revendedor<input name="maxConexRev" type="number" min="1" value="'+esc(s.maxConexRev)+'"></label>'+
+     '<label>Suspender solo al que usa más conexiones de las permitidas<select name="excesoAuto"><option value="si" '+(s.excesoAuto!=='no'?'selected':'')+'>Sí, automático (con el panel abierto)</option><option value="no" '+(s.excesoAuto==='no'?'selected':'')+'>No, solo avisarme</option></select></label>'+
+     '<label>…después de cuántos minutos excedido<input name="excesoMin" type="number" min="5" value="'+esc(s.excesoMin||'60')+'"></label>'+
      '<label>Control: máx. días de vencimiento para revendedores<input name="maxDiasRev" type="number" min="1" value="'+esc(s.maxDiasRev)+'"></label>'+
      '<input type="hidden" name="tarifaRev" id="tarifaRev" value="'+esc(s.tarifaRev||'')+'"><div class="full"><label style="margin-bottom:6px">Tarifa para revendedores (precio por crédito según su cupo)</label><div id="tarEd"></div></div>':'')+
    '<label>Avisar con cuántos días de anticipación<input name="diasAviso" type="number" min="0" max="15" value="'+esc(s.diasAviso)+'"></label>'+
