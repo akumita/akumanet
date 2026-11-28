@@ -869,7 +869,7 @@ function refreshDebtBadge(){var n=debtGroups((S.debts||[]).filter(function(d){re
 function dDate(s){return fdate(String(s).slice(0,10)+'T12:00:00')}
 function debtWa(x){
   var cl=S.clients.filter(function(c){return c.username.toLowerCase()===x.usuario.toLowerCase()})[0];
-  var num=x.wa||(cl&&cl.wa)||'';if(!waNum(num))return '';
+  var num=waNum(x.wa)?x.wa:(cl&&cl.wa)||'';if(!waNum(num))return '';
   var txt=(S.cfg.settings.plantillaDeuda||'Hola {usuario}, tenés un saldo pendiente de {monto}.').replace(/\{usuario\}/g,x.usuario).replace(/\{monto\}/g,money(x.saldo))
     .replace(/\{detalle\}/g,x.items.map(function(d){return d.detalle}).filter(Boolean).join(', ')).replace(/\{fecha\}/g,dDate(x.desde)).replace(/\{dias\}/g,'');
   return waText(num,txt);
@@ -890,7 +890,8 @@ function vDeudas(){
      '<div class="card kpi warn"><div class="l"><i class="ti ti-clock"></i>Deuda más vieja</div><div class="v">'+(gr.length?old+' días':'—')+'</div></div></div>'+
      (gr.length?'<div class="tablewrap"><table><tr><th>Cliente</th>'+(showO?'<th>De</th>':'')+'<th>Debe</th><th class="hide-m">Desde</th><th class="hide-m">Detalle</th><th>Acciones</th></tr>'+
       gr.map(function(x,i){var link=debtWa(x);
-        return '<tr><td><b>'+esc(x.usuario)+'</b><div class="mut small">'+esc(x.wa||'')+'</div></td>'+(showO?'<td>'+(x.owner==='admin'?'<span class="mut">Yo</span>':esc(x.owner))+'</td>':'')+
+        var cl0=S.clients.filter(function(c){return c.username.toLowerCase()===x.usuario.toLowerCase()})[0],wv=waNum(x.wa)?x.wa:(cl0&&cl0.wa)||'';
+        return '<tr><td><b>'+esc(x.usuario)+'</b><div class="mut small">'+esc(wv||'sin número cargado')+'</div></td>'+(showO?'<td>'+(x.owner==='admin'?'<span class="mut">Yo</span>':esc(x.owner))+'</td>':'')+
          '<td><b style="color:var(--bad)">'+money(x.saldo)+'</b></td><td class="hide-m mut small">'+dDate(x.desde)+'</td>'+
          '<td class="hide-m mut small">'+esc(x.items.map(function(d){return d.detalle}).filter(Boolean).join(' · '))+'</td>'+
          '<td class="acts"><button class="btn sm p" onclick="cobrarDlg('+i+')"><i class="ti ti-check"></i>Cobrar</button>'+
