@@ -665,6 +665,7 @@ function resMenu(ev,id){
     {icon:'list-details',label:'Resumen de clientes',fn:function(){resClients(id)}},
     {icon:'refresh',label:'Renovar',fn:function(){resRenew(id)}},
     {icon:'edit',label:'Editar',fn:function(){resDlg(id)}},
+    {icon:'brand-whatsapp',label:waNum(r.wa)?'WhatsApp':'WhatsApp (cargar número)',fn:function(){if(waNum(r.wa))window.open('https://wa.me/'+waNum(r.wa),'_blank');else resDlg(id)}},
     {icon:'users-plus',label:'Cambiar cupo',fn:function(){cupoDlg(id)}},
     {icon:'cash-banknote',label:'Anotar deuda',fn:function(){debtDlg(r.name)}}].concat(isAdmin()?[
     {icon:'eye',label:'Ver como '+r.name,fn:function(){viewAs(id)}},
@@ -806,7 +807,7 @@ function vRevendedores(){
        '<td><a href="#" onclick="resOnline('+r.id+');return false" style="color:var(--ok)">'+S.clients.filter(function(c){return !c.own&&c.reseller===r.name&&isOnline(c.username)}).length+' 🟢</a></td>'+
        '<td>'+(r.account_type==='credit'?'<span class="mut">créditos</span>':diasTag(r._dias,st==='suspended'?'suspended':''))+'<div class="mut small">'+fdate(r.expiration_date)+'</div></td>'+
        (isAdmin()?'<td><b>'+money(cobroRev(max,30))+'</b><div class="mut small">'+max+' × '+money(precioCredito(max))+'</div></td>':'')+
-       '<td class="hide-m mut">'+esc(r.account_type||'')+'</td>'
+       '<td class="hide-m mut">'+esc(r.account_type||'')+'</td>'+
        '<td class="acts"><button class="btn sm p" onclick="resRenew('+r.id+')">Renovar</button><button class="btn sm" onclick="resClients('+r.id+')">Clientes</button></td></tr>';
      }).join('')+'</table></div>';
   }).catch(function(e){$('#rlist').innerHTML='Error: '+esc(e.message||e)});
@@ -814,9 +815,26 @@ function vRevendedores(){
 function resOnline(id){var r=resById(id);S.scope='rev';S.reseller=r.name;S.filter='todos';go('clientes')}
 function resById(id){for(var i=0;i<S.resellers.length;i++)if(S.resellers[i].id===id)return S.resellers[i]}
 function resRenew(id){var r=resById(id),A=isAdmin(),cupo=Number(r.max_users)||0;
-  openModal('<h3>Renovar revendedor '+esc(r.name)+'</h3><p class="mut">Vence: '+fdate(r.expiration_date)+' · cupo '+cupo+'</p><div class="f"><label>Días<select id="rrd"><option>30</option><option>15</option><option>60</option><option>90</option></select></label><label><span id="rrlab">Cobrado ($)</span><input id="rrm" type="number" value="'+(A?cobroRev(cupo,30):0)+'">'+(A?'<span class="mut small" id="rrhint">'+tarifaHint(cupo,30)+'</span>':'')+'</label>'+payToggle('rrpay','rrlab')+'</div><div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="rrgo">Renovar</button></div>');
+  openModal('<h3>Renovar revendedor '+esc(r.name)+'</h3><p class="mut">Vence: '+fdate(r.expiration_date)+' · cupo '+cupo+'</p><div class="f"><label>Días<select id="rrd"><option>30</option><option>15</option><option>60</option><option>90</option></select></label><label><span id="rrlab">Cobrado ($)</span><input id="rrm" type="number" value="'+(A?cobroRev(cupo,30):0)+'">'+(A?'<span class="mut small" id="rrhint">'+tarifaHint(cupo,30)+'</span>':'')+'</label>'+payToggle('rrpay','rrlab')+
+   (waNum(r.wa)?'<label class="full" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="rrw" checked> Avisarle por WhatsApp ('+esc(r.wa)+')</label>'
+    :'<p class="full mut small" style="margin:0">Sin WhatsApp cargado: no se le puede mandar el aviso. <a href="#" onclick="resDlg('+id+');return false">Cargar número</a></p>')+
+   '</div><div class="mfoot"><button class="btn" onclick="closeModal()">Cancelar</button><button class="btn p" id="rrgo">Renovar</button></div>');
   if(A){var mm=$('#rrm');mm.addEventListener('input',function(){mm._manual=true});$('#rrd').onchange=function(){if(mm._manual)return;var d=Number(this.value)||30;mm.value=cobroRev(cupo,d);setTxt('rrhint',tarifaHint(cupo,d))}}
-  $('#rrgo').onclick=function(){busy($('#modal'),true);call('renewReseller',id,r.username,$('#rrd').value,$('#rrm').value,isDebe('rrpay'),r.name).then(function(){if(isDebe('rrpay'))loadDebts();closeModal();toast('Revendedor renovado ✅');vRevendedores()}).catch(fail).then(function(){busy($('#modal'),false)})};
+  $('#rrgo').onclick=function(){
+    var d=Number($('#rrd').value)||30,monto=$('#rrm').value,w=!!($('#rrw')&&$('#rrw').checked);
+    // En el navegador la pestaña de WhatsApp se abre en el clic (si no, se bloquea); en la app, después.
+    var win=(w&&!isApp())?window.open('','_blank'):null;
+    busy($('#modal'),true);
+    call('renewReseller',id,r.username,d,monto,isDebe('rrpay'),r.name).then(function(){if(isDebe('rrpay'))loadDebts();
+      var base=Math.max(Date.now(),r.expiration_date?new Date(r.expiration_date).getTime():0),vence=new Date(base+d*864e5).toISOString();
+      var txt=(S.cfg.settings.plantillaRevRenovado||'Hola {nombre}! Tu panel quedó renovado hasta el {fecha}.').replace(/\{nombre\}/g,r.name).replace(/\{fecha\}/g,fdate(vence)).replace(/\{dias\}/g,d).replace(/\{cupo\}/g,cupo).replace(/\{monto\}/g,money(monto));
+      var link=w?'https://wa.me/'+waNum(r.wa)+'?text='+encodeURIComponent(txt):'';
+      toast('Revendedor renovado ✅');vRevendedores();
+      if(link&&win){try{win.location.href=link}catch(e){win=null}}
+      else if(link&&isApp()){window.open(link,'_blank');win=true}
+      if(link&&!win){openModal('<h3>Revendedor renovado ✅</h3><p>'+esc(r.name)+' vence ahora el <b>'+fdate(vence)+'</b>.</p><div class="mfoot"><button class="btn" onclick="closeModal()">Cerrar</button><a class="btn wa" target="_blank" onclick="closeModal()" href="'+link+'">Avisar por WhatsApp</a></div>')}
+      else closeModal();
+    }).catch(function(e){if(win&&win.close)try{win.close()}catch(x){}fail(e)}).then(function(){busy($('#modal'),false)})};
 }
 function resDlg(id){
   var r=id?resById(id):null;
@@ -826,6 +844,7 @@ function resDlg(id){
      '<label>Nombre<input name="name" value="'+esc(r?r.name:'')+'"></label><label>Usuario<input name="username" value="'+esc(r?r.username:'')+'"></label>'+
      '<label>Contraseña<input name="password" placeholder="'+(r?'(sin cambios)':'')+'" value="'+(r?'':genPass())+'"></label>'+
      '<label>Límite de usuarios / créditos<input name="max_users" type="number" value="'+esc(r?r.max_users:10)+'"></label>'+
+     '<label>WhatsApp<input name="wa" type="tel" placeholder="11 2345 6789" value="'+esc(r?r.wa||'':'')+'"></label>'+
      (r?'':'<label>Tipo<select name="account_type"><option value="validity">Por validez</option><option value="credit">Por créditos</option></select></label>')+
      '<label>Vencimiento<input name="expiration_date" type="date" value="'+exp+'"></label>'+
      (r?'':'<label class="full">Categorías<div>'+(cats||[]).map(function(k){return '<label style="flex-direction:row;gap:6px;display:inline-flex;margin-right:10px"><input type="checkbox" name="cat" value="'+k.id+'" checked> '+esc(k.name)+'</label>'}).join('')+'</div></label>')+
@@ -1264,6 +1283,7 @@ function vAjustes(){
    '<label class="full">Mensaje para vencidos<textarea name="plantillaVencido">'+esc(s.plantillaVencido)+'</textarea></label>'+
    '<label class="full">Mensaje al renovar<textarea name="plantillaRenovado">'+esc(s.plantillaRenovado)+'</textarea></label>'+
    '<label class="full">Mensaje para recordar una deuda<textarea name="plantillaDeuda">'+esc(s.plantillaDeuda||'')+'</textarea></label>'+
+   '<label class="full">Mensaje al renovar un revendedor <span class="mut small">({nombre} {fecha} {dias} {cupo} {monto})</span><textarea name="plantillaRevRenovado">'+esc(s.plantillaRevRenovado||'')+'</textarea></label>'+
    '<label class="full mut">Variables: {usuario} {fecha} {dias} · en deudas: {monto} {detalle}</label>'+
    '<label>Mail diario de las 9 h<select name="emailResumen"><option value="si" '+(s.emailResumen==='si'?'selected':'')+'>Sí, mandármelo</option><option value="no" '+(s.emailResumen!=='si'?'selected':'')+'>No</option></select></label>'+
    '</form><div class="mfoot"><button class="btn p" id="ssave">Guardar ajustes</button></div></div>'+
